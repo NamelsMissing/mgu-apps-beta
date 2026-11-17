@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "components": [
+    {
+      "id": "mgu_gamesnacks",
+      "kind": "app",
+      "title": "MGU GameSnacks",
+      "version": "0.2.0",
+      "path": "apps/mgu_gamesnacks",
+      "icon": "icon.png",
+      "mguHmi": [
+        "ID7"
+      ],
+      "requires": {
+        "idrive7-renderd": "2.1.6",
+        "mgu-inputgate": "1.0.0"
+      },
+      "build": {
+        "python": "tools/build_store_app.py",
+        "args": [
+          "{id}"
+        ],
+        "sdk": "oap-sdk",
+        "output": "dist/{id}@{version}.tgz"
+      }
+    }
+  ]
+}

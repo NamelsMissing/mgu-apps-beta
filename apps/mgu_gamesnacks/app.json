@@ -1,0 +1,29 @@
+{
+  "id": "mgu_gamesnacks",
+  "title": "MGU GameSnacks",
+  "description": "Mini-games and a GameSnacks web mirror for the parked car.",
+  "version": "0.2.0",
+  "vendor": "G21 Offline Lab (unofficial)",
+  "loggingId": "OGSN",
+  "iconGlyph": "GS",
+  "cpuLimit": 50,
+  "maxDiskUsage": 134217728,
+  "signals": {
+    "de.bmw.infotainment.vehicle.Vehicle2": {"statusCarSpeed2": "rs"},
+    "de.bmw.infotainment.controlelements.FrontCCU": {"statusRotaryEncoderState": "rs"}
+  },
+  "screens": [
+    {"name": "MAIN", "kind": "canvas", "title": "MGU GameSnacks", "buttons": [
+      ["BTN_HOME", "Games"],
+      ["BTN_MIRROR", "Web mirror"],
+      ["BTN_NEW", "New game"],
+      ["BTN_SETTINGS", "Settings"]
+    ]}
+  ],
+  "settings": [
+    {"key": "theme", "label": "Colour theme", "type": "choice", "default": "ice",
+      "options": [["ice", "Ice White"], ["amber", "Night Amber"]]},
+    {"key": "mirrorQuality", "label": "Web mirror picture", "type": "choice", "default": "balanced",
+      "options": [["fast", "Fast (smaller picture)"], ["balanced", "Balanced"], ["sharp", "Sharp (more Wi-Fi traffic)"]]}
+  ]
+}
