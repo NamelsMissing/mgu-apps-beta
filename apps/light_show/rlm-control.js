@@ -6,7 +6,9 @@
 //   seconds 0 = off, 1..254 = on for that time, 255 = permanent (never used here).
 // RLM_1L/1R/2L/2R (RLM_*.prg): RLM_KANAL, 2E D6 DA <channel 1-8> <seconds> <PWM %>,
 //   seconds 0 = off. Channel 0 (all) is not used.
-// The channel routine of RLM2 (31 A5 56) needs a current value in mA and is not used.
+// RLM2_*: RLM_KANAL routine 31 01 A5 56 <group> <PWM> <current mA, 2 bytes> <seconds>, stop 31 02 A5 56.
+//   Only the 16 segment groups (0x60-0x6F) and "all channels" (0x70), with 100 mA - the values
+//   BimmerLight's mapping uses for these modules. One routine per module at a time.
 
 const MODULES = Object.freeze({
     0x17: Object.freeze({ slot: '1L', side: 'left', position: 'outer' }),
@@ -33,18 +35,38 @@ const FUNCTIONS = Object.freeze({
     0x09: { key: 'plate', name: 'licence plate light', color: 'white' },
 });
 const CHANNELS_RLM1 = 8;
+const GROUPS_RLM2 = 16;
+const GROUP_CURRENT_MA = 100;
+/** group 1-16 -> 0x60-0x6F, 0 -> 0x70 (all channels) */
+function groupCode(g) {
+    if (!Number.isInteger(g) || g < 0 || g > GROUPS_RLM2) throw new Error('Rear light group must be 0 (all) or 1-16');
+    return g === 0 ? 0x70 : 0x5F + g;
+}
+function groupStart(group, ms, pwm) {
+    const p = PWM.indexOf(pwm) >= 0 ? pwm : 60;
+    return [0x01, 0xA5, 0x56, groupCode(group), p, (GROUP_CURRENT_MA >> 8) & 0xFF, GROUP_CURRENT_MA & 0xFF, seconds(ms)];
+}
+function groupStop() { return [0x02, 0xA5, 0x56]; }
+/** Is this 31 request one of ours? */
+function permittedRoutine(data) {
+    if (!Array.isArray(data)) return false;
+    if (data.length === 3) return data[0] === 0x02 && data[1] === 0xA5 && data[2] === 0x56;
+    if (data.length !== 8 || data[0] !== 0x01 || data[1] !== 0xA5 || data[2] !== 0x56) return false;
+    return data[3] >= 0x60 && data[3] <= 0x70 && PWM.indexOf(data[4]) >= 0 && data[5] === 0x00 && data[6] === GROUP_CURRENT_MA
+        && data[7] >= 1 && data[7] <= 5;
+}
 const PWM = Object.freeze([20, 40, 60, 80, 100]);
 
 function moduleAt(address) {
     if (!Object.prototype.hasOwnProperty.call(MODULES, address)) throw new Error('No rear light module at 0x' + Number(address).toString(16));
     return MODULES[address];
 }
-/** {name, kind: 'fn' (RLM2) | 'ch' (RLM_1)} or null */
+/** {name, kinds: ['fn', 'grp'] (RLM2) | ['ch'] (RLM_1)} or null */
 function variant(address, index) {
     moduleAt(address);
     const name = VARIANTS[address][index];
     if (!name) return null;
-    return { name, kind: name.indexOf('RLM2_') === 0 ? 'fn' : 'ch' };
+    return { name, kinds: name.indexOf('RLM2_') === 0 ? ['fn', 'grp'] : ['ch'] };
 }
 function seconds(ms) { return Math.min(5, Math.max(1, Math.ceil(ms / 1000))); }
 
@@ -72,4 +94,5 @@ function permitted(data) {
     return false;
 }
 
-module.exports = { MODULES, VARIANTS, FUNCTIONS, CHANNELS_RLM1, module: moduleAt, variant, telegram, permitted, seconds };
+module.exports = { MODULES, VARIANTS, FUNCTIONS, CHANNELS_RLM1, GROUPS_RLM2, GROUP_CURRENT_MA, module: moduleAt, variant, telegram, permitted,
+    permittedRoutine, groupCode, groupStart, groupStop, seconds };

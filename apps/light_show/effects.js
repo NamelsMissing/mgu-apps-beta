@@ -66,17 +66,22 @@ function pattern(id, lamps) {
     }
 }
 
-/** Split a step so that no headlamp module gets two channels at the same time. */
+/** Split a step so that no module runs two channel routines at the same time. */
+function unitOf(l) {
+    if (l.route === 'flm') return 'flm:' + l.side;
+    if (l.route === 'rlm' && l.kind === 'grp') return 'rlm:' + l.address;
+    return null;
+}
 function splitStep(ids, byId) {
     const out = [];
     const rest = ids.slice();
     while (rest.length) {
         const step = [], used = {};
         for (let i = 0; i < rest.length;) {
-            const l = byId[rest[i]];
-            if (l.route === 'flm') {
-                if (used[l.side]) { i++; continue; }
-                used[l.side] = true;
+            const u = unitOf(byId[rest[i]]);
+            if (u) {
+                if (used[u]) { i++; continue; }
+                used[u] = true;
             }
             step.push(rest.splice(i, 1)[0]);
         }
@@ -124,12 +129,12 @@ function plan(selection, lampList, options) {
         parts.forEach((p) => steps.push({ on: p, ms: parts.length > 1 ? Math.max(200, Math.round(stepMs / parts.length / 50) * 50) : stepMs, split: parts.length > 1 }));
     }
     if (steps.length * cycles > MAX_STEPS) throw new Error('Show too long: use fewer lamps or repeats');
-    if (split) notes.push('Several LEDs of one headlamp play one after another: the module runs one channel at a time.');
+    if (split) notes.push('Several channels of one headlamp or tail light play one after another: each module runs one channel at a time.');
     if (lamps.some((l) => l.route === 'fn')) notes.push('Function lamps (both sides) switch off by themselves after their time.');
-    if (lamps.some((l) => l.route === 'out')) notes.push('BDC outputs are experimental: on the tested G21 they had no visible effect.');
+    if (lamps.some((l) => l.route === 'out')) notes.push('BDC single outputs are experimental: lights that LED headlamps or tail light modules drive themselves stay dark.');
     const estimateMs = cycles * steps.reduce((s, st) => s + st.ms + gapMs, 0);
     if (estimateMs > MAX_MS) throw new Error('Show longer than 3 minutes: shorten it');
     return { effect: e.id, name: e.name, steps, gapMs, cycles, pwm, estimateMs, notes, lamps: selection.slice() };
 }
 
-module.exports = { EFFECTS, STEP_MS, GAP_MS, CYCLES, PWM, MAX_LAMPS, effect, pattern, plan, splitStep };
+module.exports = { unitOf, EFFECTS, STEP_MS, GAP_MS, CYCLES, PWM, MAX_LAMPS, effect, pattern, plan, splitStep };

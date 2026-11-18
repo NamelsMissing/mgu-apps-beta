@@ -49,8 +49,9 @@ function moduleFor(side) {
     return MODULES[side];
 }
 const MAX_CHANNEL = 17;
+// Channel 0 = "alle" (every LED of the headlamp at once), as used by BimmerLight's ALL_LEFT/RIGHT.
 function channelNumber(n) {
-    if (!Number.isInteger(n) || n < 1 || n > MAX_CHANNEL) throw new Error('Only FLM LED channels 1-' + MAX_CHANNEL + ' are allowed');
+    if (!Number.isInteger(n) || n < 0 || n > MAX_CHANNEL) throw new Error('Only FLM LED channels 0 (all) and 1-' + MAX_CHANNEL + ' are allowed');
     return n;
 }
 function settings(pwm, seconds) {

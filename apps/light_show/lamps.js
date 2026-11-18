@@ -72,13 +72,14 @@ const GROUP_ORDER = Object.freeze({ front: 0, side: 1, rear: 2 });
 function flmId(side, channel) { return 'flm:' + side + ':' + channel; }
 function parse(id) {
     const s = String(id || '').split(':');
-    if (s[0] === 'flm' && (s[1] === 'left' || s[1] === 'right') && /^([1-9]|1[0-7])$/.test(s[2]))
+    if (s[0] === 'flm' && (s[1] === 'left' || s[1] === 'right') && /^([0-9]|1[0-7])$/.test(s[2]))
         return { route: 'flm', side: s[1], channel: Number(s[2]) };
     if (s[0] === 'fn' && s.length === 2 && FUNCTIONS.some((f) => f.key === s[1])) return { route: 'fn', key: s[1] };
     if (s[0] === 'rlm' && s.length === 3 && /^(17|1a|1c|1e)$/.test(s[1])) {
-        const address = parseInt(s[1], 16), m = /^([fc])(\d{1,2})$/.exec(s[2]);
+        const address = parseInt(s[1], 16), m = /^([fcg])(\d{1,2})$/.exec(s[2]);
         if (!m) return null;
         const item = Number(m[2]);
+        if (m[1] === 'g' && item >= 0 && item <= Rl.GROUPS_RLM2) return { route: 'rlm', address, kind: 'grp', item };
         if (m[1] === 'f' && Rl.FUNCTIONS[item]) return { route: 'rlm', address, kind: 'fn', item };
         if (m[1] === 'c' && item >= 1 && item <= Rl.CHANNELS_RLM1) return { route: 'rlm', address, kind: 'ch', item };
         return null;
@@ -103,12 +104,14 @@ function catalog(profile, names, options) {
     for (const side of ['left', 'right']) {
         const support = routes ? routes.flm[side] : null, s = side === 'left' ? L : R;
         const fv = profile && profile.flm && profile.flm[side].index ? F.variant(side, profile.flm[side].index) : null;
-        for (let c = 1; c <= (fv ? fv.channels : 15); c++) {
+        for (let c = 0; c <= (fv ? fv.channels : 15); c++) {
             const id = flmId(side, c), name = names ? names.name(id) : '';
+            const sideName = side === 'left' ? 'Left' : 'Right';
             out.push({ id, route: 'flm', side, channel: c, group: 'front', color: 'white', hex: COLORS.white,
-                label: name || (side === 'left' ? 'Left' : 'Right') + ' headlamp LED ' + c,
-                short: (side === 'left' ? 'L' : 'R') + c, named: !!name,
-                points: [pt(s, 0.50 + c * 0.017, 0.70 + (c % 3) * 0.022, 2.28 - c * 0.006)],
+                label: name || (c === 0 ? sideName + ' headlamp, all LEDs' : sideName + ' headlamp LED ' + c),
+                short: (side === 'left' ? 'L' : 'R') + (c === 0 ? '*' : c), named: !!name,
+                points: c === 0 ? [pt(s, 0.56, 0.72, 2.28), pt(s, 0.66, 0.74, 2.27), pt(s, 0.74, 0.76, 2.24)]
+                    : [pt(s, 0.50 + c * 0.017, 0.70 + (c % 3) * 0.022, 2.28 - c * 0.006)],
                 module: fv ? fv.name : F.MODULES[side].name, available: !why(support), why: why(support), support });
         }
     }
@@ -138,17 +141,23 @@ function catalog(profile, names, options) {
 function rlmLamps(profile, names) {
     const out = [];
     for (const r of (profile && profile.rlm) || []) {
-        if (!r.kind) continue;
         const place = RLM_PLACE[r.address], hx = r.address.toString(16);
-        const items = r.kind === 'fn' ? Object.keys(Rl.FUNCTIONS).map(Number) : Array.from({ length: Rl.CHANNELS_RLM1 }, (_, i) => i + 1);
-        for (const item of items) {
-            const fn = r.kind === 'fn' ? Rl.FUNCTIONS[item] : null, color = fn ? fn.color : 'red';
-            const id = 'rlm:' + hx + ':' + (r.kind === 'fn' ? 'f' : 'c') + item;
-            const sideName = r.side === 'left' ? 'Left' : 'Right', part = Rl.MODULES[r.address].position === 'outer' ? 'outer' : 'inner';
-            out.push({ id, route: 'rlm', address: r.address, kind: r.kind, item, group: 'rear', side: r.side, color, hex: COLORS[color],
-                label: (names && names.name(id)) || sideName + ' ' + part + ' tail light ' + (fn ? fn.name : 'LED ' + item),
-                short: (r.side === 'left' ? 'L' : 'R') + (part === 'outer' ? 'o' : 'i') + (fn ? fn.key : item),
-                points: [pt(place[0], place[1] + (fn ? 0 : item * 0.012), 0.90 - (fn ? item * 0.01 : 0), -2.30)],
+        const sideName = r.side === 'left' ? 'Left' : 'Right', part = Rl.MODULES[r.address].position === 'outer' ? 'outer' : 'inner';
+        const entries = [];
+        (r.kinds || []).forEach((kind) => {
+            if (kind === 'fn') Object.keys(Rl.FUNCTIONS).map(Number).forEach((item) => entries.push([kind, item]));
+            if (kind === 'ch') for (let i = 1; i <= Rl.CHANNELS_RLM1; i++) entries.push([kind, i]);
+            if (kind === 'grp') for (let i = 0; i <= Rl.GROUPS_RLM2; i++) entries.push([kind, i]);
+        });
+        for (const [kind, item] of entries) {
+            const fn = kind === 'fn' ? Rl.FUNCTIONS[item] : null, color = fn ? fn.color : 'red';
+            const id = 'rlm:' + hx + ':' + { fn: 'f', ch: 'c', grp: 'g' }[kind] + item;
+            const what = fn ? fn.name : kind === 'grp' ? (item === 0 ? 'all segments' : 'segment ' + item) : 'LED ' + item;
+            const spread = kind === 'grp' && item > 0 ? (item - 8.5) * 0.012 : kind === 'ch' ? item * 0.012 : 0;
+            out.push({ id, route: 'rlm', address: r.address, kind, item, group: 'rear', side: r.side, color, hex: COLORS[color],
+                label: (names && names.name(id)) || sideName + ' ' + part + ' tail light ' + what,
+                short: (r.side === 'left' ? 'L' : 'R') + (part === 'outer' ? 'o' : 'i') + (fn ? fn.key : kind === 'grp' ? 'g' + item : item),
+                points: [pt(place[0], place[1] + spread, 0.90 - (fn ? item * 0.01 : 0), -2.30)],
                 module: r.name, available: r.support === 'prg', why: r.support === 'prg' ? '' : 'Rear light module not supported',
                 support: r.support });
         }

@@ -63,7 +63,7 @@ function profile(ids, method, now) {
     const rlm = Object.keys(R.MODULES).map(Number).map((address) => {
         const u = at(address), v = u && u.index ? R.variant(address, u.index) : null;
         return { address, slot: R.MODULES[address].slot, side: R.MODULES[address].side, index: u && u.index,
-            name: v ? v.name : u && u.name, kind: v ? v.kind : null,
+            name: v ? v.name : u && u.name, kinds: v ? v.kinds : [],
             support: !u ? 'absent' : !v ? 'unsupported' : bodyOk ? 'prg' : 'blocked' };
     }).filter((r) => r.support !== 'absent');
     const routes = {
@@ -71,7 +71,7 @@ function profile(ids, method, now) {
         flm: { left: flmRoute(flm.left.support), right: flmRoute(flm.right.support) },
         fn: bodyOk ? bv.support : 'unsupported',
         out: bodyOk && bv.outputs ? 'experimental' : 'unsupported',
-        rlm: rlm.map((r) => ({ address: r.address, support: r.support, kind: r.kind })),
+        rlm: rlm.map((r) => ({ address: r.address, support: r.support, kinds: r.kinds })),
     };
     const lightUnits = units.filter((u) => u.light);
     lightUnits.forEach((u) => {

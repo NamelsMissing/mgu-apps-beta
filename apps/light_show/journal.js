@@ -19,9 +19,9 @@ function clean(control) {
     outputs.forEach((id) => DiagnosticOutputs.get(id));
     const rlm = (c.rlm || []).map((r) => {
         R.module(r.address);
-        if (r.kind !== 'fn' && r.kind !== 'ch') throw new Error('Invalid recovery rear light route');
+        if (['fn', 'ch', 'grp'].indexOf(r.kind) < 0) throw new Error('Invalid recovery rear light route');
         const items = Array.from(new Set(r.items || []));
-        items.forEach((i) => R.telegram(r.kind, i, 0, 60));
+        items.forEach((i) => (r.kind === 'grp' ? R.groupCode(i) : R.telegram(r.kind, i, 0, 60)));
         return { address: r.address, kind: r.kind, items };
     });
     const bdcSession = !!c.bdcSession || fns.length > 0 || outputs.length > 0;

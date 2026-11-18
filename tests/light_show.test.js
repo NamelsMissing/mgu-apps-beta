@@ -65,6 +65,13 @@ const ids = (pairs) => new Map(pairs);
     assert.deepStrictEqual(R.telegram('ch', 3, 500, 40), [0xD6, 0xDA, 0x03, 0x01, 0x28]);
     assert.throws(() => R.telegram('fn', 0x07, 500), /Unknown/);
     assert.ok(!R.permitted([0xA8, 0x3B, 0x02, 0xFF]), 'never permanent on');
+    assert.deepStrictEqual(R.groupStart(1, 800, 100), [0x01, 0xA5, 0x56, 0x60, 0x64, 0x00, 0x64, 0x01], 'group 1, 100 %, 100 mA, 1 s');
+    assert.deepStrictEqual(R.groupStart(0, 2500, 60).slice(3, 4), [0x70], 'all channels');
+    assert.ok(R.permittedRoutine(R.groupStop()) && R.permittedRoutine(R.groupStart(16, 500, 40)));
+    assert.ok(!R.permittedRoutine([0x01, 0xA5, 0x56, 0x05, 0x64, 0x00, 0x64, 0x01]), 'single RLM2 channels are not used');
+    assert.ok(!R.permittedRoutine([0x01, 0xA5, 0x56, 0x60, 0x64, 0x01, 0x2C, 0x01]), 'only 100 mA');
+    const F2 = require(APP + '/flm-control');
+    assert.deepStrictEqual(F2.start(0, 60, 1), [0x01, 0xA5, 0x4B, 0x00, 0x3C, 0x01], 'FLM channel 0 = all LEDs');
     const P = require(APP + '/protocol');
     assert.deepStrictEqual(P.timedControl('brake', 500), [0xD5, 0x42, 0x00, 0x0C, 0x00, 0x32]);
     console.log('ok: gateway, rear light modules and vehicle order are read; light telegrams match the PRGs');
@@ -74,7 +81,8 @@ const ids = (pairs) => new Map(pairs);
 {
     const g21 = Scan.profile(ids([[0x40, '0F2680'], [0x43, '0F26C0'], [0x44, '0F26D0']]), 'test');
     const all = Lamps.catalog(g21, null, {});
-    assert.strictEqual(all.filter((l) => l.route === 'flm').length, 30);
+    assert.strictEqual(all.filter((l) => l.route === 'flm').length, 32, '15 channels + all per side');
+    assert.ok(all.some((l) => l.id === 'flm:left:0' && /all LEDs/.test(l.label)));
     assert.strictEqual(all.filter((l) => l.route === 'fn').length, 19, 'all exterior D542 functions of BDC_G05');
     assert.ok(all.some((l) => l.id === 'fn:indLeft' && l.side === 'left'));
     assert.ok(all.filter((l) => l.route === 'out').length >= 30, 'all BDC exterior outputs listed');
@@ -83,10 +91,11 @@ const ids = (pairs) => new Map(pairs);
     all.forEach((l) => assert.deepStrictEqual(Lamps.parse(l.id) && Lamps.parse(l.id).route, l.route));
     const laser = Scan.profile(ids([[0x40, '0F2680'], [0x43, '0F26C8'], [0x44, '0F26D8']]), 'test');
     const lf = Lamps.catalog(laser, null, {}).filter((l) => l.route === 'flm');
-    assert.strictEqual(lf.length, 34, 'FLM02X has 17 channels per side'); assert.ok(lf.every((l) => l.available));
+    assert.strictEqual(lf.length, 36, 'FLM02X has 17 channels + all per side'); assert.ok(lf.every((l) => l.available));
     const rear = Scan.profile(ids([[0x40, '0F2680'], [0x17, '0F2C10'], [0x1A, '0F23D0']]), 'test');
     const rl = Lamps.catalog(rear, null, {}).filter((l) => l.route === 'rlm');
     assert.strictEqual(rl.filter((l) => l.kind === 'fn').length, 9, 'RLM2: 9 light functions');
+    assert.strictEqual(rl.filter((l) => l.kind === 'grp').length, 17, 'RLM2: 16 segment groups + all');
     assert.strictEqual(rl.filter((l) => l.kind === 'ch').length, 8, 'RLM_1: 8 channels');
     rl.forEach((l) => assert.deepStrictEqual(Lamps.parse(l.id).route, 'rlm'));
     assert.ok(Lamps.catalog(null, null, {}).every((l) => !l.available), 'nothing before the first scan');
@@ -163,7 +172,7 @@ class FakeLink {
     flmStart(s, c, pwm, sec) { F.start(c, pwm, sec); return this.rec(s + ':start' + c); }
     flmStop(s) { return this.rec(s + ':stop'); }
     timed(k, ms) { return this.rec('fn:' + k + ':' + ms); }
-    identifyRlm(a) { return this.rec('id:rlm' + a.toString(16)).then(() => ({ name: 'RLM2_1L', kind: 'fn' })); }
+    identifyRlm(a) { return this.rec('id:rlm' + a.toString(16)).then(() => ({ name: 'RLM2_1L', kinds: ['fn', 'grp'] })); }
     rlmSession(a) { return this.rec('rlm' + a.toString(16) + ':03'); }
     rlmDefaultSession(a) { return this.rec('rlm' + a.toString(16) + ':01'); }
     rlmKeepalive(a) { return this.rec('rlm' + a.toString(16) + ':3E'); }
@@ -236,9 +245,16 @@ const byId = {}; g21Lamps.forEach((l) => { byId[l.id] = l; });
         assert.ok(res.ok, JSON.stringify(res));
         const l = link.log;
         assert.ok(l.indexOf('id:rlm17') < l.indexOf('rlm17:03') && l.indexOf('rlm17:03') < l.indexOf('rlm17:fn2:on'));
-        assert.deepStrictEqual(l.slice(-7), ['fn:indLeft:0', 'fn:indRight:0', 'rlm17:fn2:off', 'rlm17:01', 'rlm1a:fn2:off', 'rlm1a:01', 'bdc:01']);
+        assert.deepStrictEqual(l.slice(-7), ['fn:indLeft:0', 'fn:indRight:0', 'rlm17:fn2:off', 'rlm1a:fn2:off', 'rlm17:01', 'rlm1a:01', 'bdc:01']);
         assert.ok(!journal.pending());
         console.log('ok: rear light modules and BDC indicator functions play and are released');
+        const link2 = new FakeLink(), w = runnerWith(link2);
+        const seq = Effects.plan(['rlm:17:g1', 'rlm:17:g2', 'rlm:17:f2'], cat, Object.assign({ effect: 'strobe' }, base, { cycles: 1 }));
+        assert.ok(seq.steps.every((st) => st.on.filter((id) => /:g/.test(id)).length <= 1), 'one segment group per module and step');
+        const res2 = await w.r.play(seq, m);
+        assert.ok(res2.ok, JSON.stringify(res2));
+        assert.ok(link2.log.indexOf('rlm17:grp0:off') > 0 && link2.log.filter((x) => x === 'rlm17:01').length === 1);
+        console.log('ok: RLM2 segment groups play one per module and are stopped once per module');
     }
 
     /* ---------- car3d ---------- */

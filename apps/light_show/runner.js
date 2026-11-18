@@ -88,25 +88,33 @@ class Runner {
             if (l.route === 'flm') { F.moduleFor(l.side); F.channelNumber(l.channel); }
             else if (l.route === 'fn') P.timedControl(l.key, 0);
             else if (l.route === 'out') P.control(l.output, 0);
-            else if (l.route === 'rlm') { R.module(l.address); R.telegram(l.kind, l.item, 0, 60); }
+            else if (l.route === 'rlm') { R.module(l.address); if (l.kind === 'grp') R.groupCode(l.item); else R.telegram(l.kind, l.item, 0, 60); }
             else throw new Error('Unknown route');
             return l;
         });
         plan.steps.forEach((s) => {
-            const sides = (s.on || []).map((id) => byId[id]).filter((l) => l.route === 'flm').map((l) => l.side);
-            if (new Set(sides).size !== sides.length) throw new Error('Two LEDs of one headlamp in one step');
+            const units = (s.on || []).map((id) => Runner.routineUnit(byId[id])).filter(Boolean);
+            if (new Set(units).size !== units.length) throw new Error('Two channels of one module in one step');
             if (!Number.isInteger(s.ms) || s.ms < 100 || s.ms > 3000) throw new Error('Invalid step time');
         });
         return lamps;
     }
+    /** Modules that run one routine at a time: FLM per side, RLM2 segment groups per module. */
+    static routineUnit(l) {
+        if (l.route === 'flm') return 'flm:' + l.side;
+        if (l.route === 'rlm' && l.kind === 'grp') return 'rlm:' + l.address;
+        return null;
+    }
+    static rlmAddresses(control) { return Array.from(new Set((control.rlm || []).map((r) => r.address))); }
     static touched(lamps) {
         return {
             flmSides: Array.from(new Set(lamps.filter((l) => l.route === 'flm').map((l) => l.side))),
             fns: Array.from(new Set(lamps.filter((l) => l.route === 'fn').map((l) => l.key))),
             outputs: Array.from(new Set(lamps.filter((l) => l.route === 'out').map((l) => l.output))),
-            rlm: Array.from(new Set(lamps.filter((l) => l.route === 'rlm').map((l) => l.address))).map((address) => {
-                const ls = lamps.filter((l) => l.route === 'rlm' && l.address === address);
-                return { address, kind: ls[0].kind, items: Array.from(new Set(ls.map((l) => l.item))) };
+            rlm: Array.from(new Set(lamps.filter((l) => l.route === 'rlm').map((l) => l.address + ':' + l.kind))).map((key) => {
+                const [a, kind] = key.split(':'), address = Number(a);
+                const ls = lamps.filter((l) => l.route === 'rlm' && l.address === address && l.kind === kind);
+                return { address, kind, items: Array.from(new Set(ls.map((l) => l.item))) };
             }),
         };
     }
@@ -122,20 +130,22 @@ class Runner {
                 await this.link.identifyFlm(side);
                 if (!this.allowed()) return this._finish(false, null);
             }
-            for (const r of touched.rlm) {
-                const v = await this.link.identifyRlm(r.address);
-                if (v.kind !== r.kind) throw new Error(v.name + ' does not offer this kind of light');
+            for (const address of Runner.rlmAddresses(touched)) {
+                const v = await this.link.identifyRlm(address);
+                touched.rlm.filter((r) => r.address === address).forEach((r) => {
+                    if (v.kinds.indexOf(r.kind) < 0) throw new Error(v.name + ' does not offer this kind of light');
+                });
                 if (!this.allowed()) return this._finish(false, null);
             }
             this.journal.mark(this.link.index, touched); dirty = true;
             if (touched.bdcSession) await this.link.session();
             for (const side of touched.flmSides) await this.link.flmSession(side);
-            for (const r of touched.rlm) await this.link.rlmSession(r.address);
+            for (const address of Runner.rlmAddresses(touched)) await this.link.rlmSession(address);
             const last = {};
             const touch = (k) => { last[k] = this.now(); };
             if (touched.bdcSession) touch('bdc');
             touched.flmSides.forEach(touch);
-            touched.rlm.forEach((r) => touch('rlm' + r.address));
+            Runner.rlmAddresses(touched).forEach((a) => touch('rlm' + a));
             const cycles = plan.cycles || 1, total = plan.steps.length * cycles;
             this.progress = { step: 0, steps: total, cycle: 1, cycles, startedAt: this.now(), estimateMs: plan.estimateMs || null };
             this.update('RUNNING', plan.name || 'Show');
@@ -223,12 +233,15 @@ class Runner {
         }
         done.rlm = {};
         for (const r of control.rlm || []) {
-            for (const item of r.items) {
+            // a segment-group routine is stopped once per module; functions / channels one by one
+            for (const item of r.kind === 'grp' ? [0] : r.items) {
                 try { await this.link.rlmSet(r.address, r.kind, item, 0, 60); }
                 catch (e) { errors.push('rear light 0x' + r.address.toString(16) + ' off: ' + (e.message || e)); }
             }
-            try { await this.link.rlmDefaultSession(r.address); done.rlm[r.address] = true; }
-            catch (e) { done.rlm[r.address] = false; errors.push('rear light 0x' + r.address.toString(16) + ' default session: ' + (e.message || e)); }
+        }
+        for (const address of Runner.rlmAddresses(control)) {
+            try { await this.link.rlmDefaultSession(address); done.rlm[address] = true; }
+            catch (e) { done.rlm[address] = false; errors.push('rear light 0x' + address.toString(16) + ' default session: ' + (e.message || e)); }
         }
         for (const side of control.flmSides) {
             try { await this.link.flmDefaultSession(side); done.flmDefault[side] = true; }
@@ -261,7 +274,7 @@ class Runner {
         try {
             await this.link.identify();
             for (const side of control.flmSides) await this.link.identifyFlm(side);
-            for (const r of control.rlm || []) await this.link.identifyRlm(r.address);
+            for (const address of Runner.rlmAddresses(control)) await this.link.identifyRlm(address);
         } catch (e) { this.update('ERROR', 'Release pending: ' + (e.message || e)); return; }
         if (await this._release(control)) this.update('IDLE', 'Previous run released');
     }

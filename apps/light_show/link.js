@@ -31,7 +31,8 @@ class Link {
             || (sid === 0x3E && P.hex(data) === '00');
         if (Object.prototype.hasOwnProperty.call(R.MODULES, address)) {
             // rear light modules: identity always; session and the light telegrams only once identified
-            const control = this.verifiedRlm[address] && (session || (sid === 0x2E && R.permitted(data)));
+            const control = this.verifiedRlm[address] && (session || (sid === 0x2E && R.permitted(data))
+                || (sid === 0x31 && this.verifiedRlm[address].kinds.indexOf('grp') >= 0 && R.permittedRoutine(data)));
             if (!identityOnly && !control) throw new Error('Rear light module 0x' + address.toString(16) + ': request not allowed / module not identified');
         } else if (address !== P.ADDRESS && SCAN_ADDRESSES.indexOf(address) >= 0 && [0x43, 0x44].indexOf(address) < 0) {
             // other light-related units: identity and vehicle order only, never control
@@ -96,10 +97,12 @@ class Link {
     async rlmSession(address) { return this.request(0x10, [0x03], false, address); }
     async rlmDefaultSession(address) { return this.request(0x10, [0x01], true, address); }
     async rlmKeepalive(address) { return this.request(0x3E, [0x00], false, address); }
-    /** kind 'fn' (RLM2 light function) or 'ch' (RLM_1 channel); ms 0 switches off. */
+    /** kind 'fn' (RLM2 light function), 'ch' (RLM_1 channel) or 'grp' (RLM2 segment group); ms 0 switches off. */
     async rlmSet(address, kind, item, ms, pwm) {
         const v = this.verifiedRlm[address];
-        if (!v || v.kind !== kind) throw new Error('Rear light module 0x' + address.toString(16) + ' not identified for this light');
+        if (!v || v.kinds.indexOf(kind) < 0) throw new Error('Rear light module 0x' + address.toString(16) + ' not identified for this light');
+        if (kind === 'grp') return ms === 0 ? this.request(0x31, R.groupStop(), true, address)
+            : this.request(0x31, R.groupStart(item, ms, pwm), false, address);
         return this.request(0x2E, R.telegram(kind, item, ms, pwm), ms === 0, address);
     }
     /**
