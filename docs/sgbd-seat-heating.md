@@ -1,8 +1,9 @@
 # Sitzheizung: DIDs aus den SGBDs (FAS_G11, BFS_G11, IHKA_G05)
 
-Stand 18.11.2026. Quelle: `Ecu.zip` des Nutzers (EDIABAS-PRGs vom 02.12.2022), nur die Tabellen
+Stand 18.11.2026. Quellen: `Ecu.zip` des Nutzers (EDIABAS-PRGs vom 02.12.2022), nur die Tabellen
 gelesen mit `tools/sgbd_tables.py`. Nichts ins Auto gesendet. Am Auto bestätigt ist bisher **nichts**
-aus diesem Dokument.
+aus diesem Dokument. Die BimmerLink- und BimmerCode-Daten selbst liegen nicht im Repo; übernommen sind
+nur die hier genannten Fakten.
 
 | Datei | MD5 | Adresse | SGBD-Index (`22 F150`) |
 | --- | --- | --- | --- |
@@ -96,6 +97,42 @@ Fahrzeuglogik (IHKA → Sitzmodul). Ein Druck schaltet aber nur eine Stufe weite
 Stufe vorher über `D8DB` lesen und danach prüfen. Ob „gedrückt“ ohne „losgelassen“ hängen bleibt,
 ist nicht beschrieben.
 
+## Abgleich mit BimmerLink-Daten (18.11.2026)
+
+Vom Nutzer entschlüsselte BimmerLink-Daten (`fas_g11`, `ihka_g05`, `bdc_g05`, `ecu-variants`)
+bestätigen unabhängig von den PRGs, ohne Abweichung:
+
+- Index-Zuordnung `6D 0F21F0` → `FAS_G11`, `78 0F2830` → `IHKA_G05` (Gruppen `G_FAS`, `G_KLIMA`).
+- Byte-Positionen der Live-Werte: `D714` Stufe Byte 0, Temperatur Kissen Byte 1, Lehne Byte 3;
+  `D8DB` Sitzheizung vorne links Byte 19, rechts Byte 20; `D701` Sitzheizung Byte 15.
+- BimmerLink nutzt diese DIDs nur lesend. Schreibbefehle für die Sitzheizung enthalten die Daten nicht.
+
+## Fahrzeugeigene Automatik per Codierung (BimmerCode-Daten, 18.11.2026)
+
+BMW hat für G-Modelle selbst eine **automatische Sitz- und Lenkradheizung unterhalb einer
+einstellbaren Außentemperatur** (Einstellung im iDrive). Sie ist in zwei Steuergeräten
+freizuschalten. Laut BimmerCode braucht sie `BDC_BODY2` oder `BDC_BODY3` (G21 und Grot110s G05
+haben `BDC_BODY3`).
+
+| Steuergerät | Funktion | Werte | Speicherort (neueste CAFD-Version in den Daten) |
+| --- | --- | --- | --- |
+| HU_MGU (CAFD `00003E52`) | `AKT_AUTO_SITZE_FRONT` | 0/1 | `0x3000` Byte 49, Maske `0x07` |
+| HU_MGU | `AKT_AUTO_SITZE_FOND` | 0/1 | – |
+| HU_MGU | `AKT_AUTO_LENKRADHEIZUNG` | 0/1 | `0x3000` Byte 47, Maske `0x04` |
+| BDC_BODY2/3 (CAFD `000017BC`, `00005FA9`, `00007083`) | `IKF_ENABLE` | 0 aus, 1 Fahrer, 2 Fahrer+Beifahrer, 3 alle | `0x3450` Byte 0, Maske `0x06` |
+| BDC_BODY2/3 | `LHZ_CCM_IKF` | 0/1 (Lenkrad) | `0x3142` Byte 2, Maske `0x20` |
+
+Verwandte Optionen:
+- BDC `NACHLAUFZEIT_LENKRADHEIZUNG`: Lenkradheizung wird gespeichert und beim nächsten Start
+  wiederhergestellt.
+- Sitzmodul (`CFAS_S15` `00002259` / `CBFS_S15` `0000225A`, auch `CFAS/CBFS_PLX_1`) `SA_MEMORY_ZEIT`:
+  wie lange die eingestellte Sitzheizungsstufe gespeichert bleibt — 0 min, 15 min, 24 h, unbegrenzt
+  (`0x3011` Byte 0, Maske `0x18`).
+
+Offen: Ob die Automatik am G05 mit Sitzmodulen die Sitze tatsächlich schaltet (der BDC fordert an,
+SMFA/SMBF führen aus), ist nicht belegt; BimmerCode bietet die Headunit-Option ausdrücklich auch für
+`x5g` an. Codierung ist Sache des Nutzers (BimmerCode/E-Sys), die App codiert nichts.
+
 ## Folgerung für Heating Comfort
 
 - **Lesen (risikoarm):** SMFA/SMBF `22 D714` Byte 0 oder IHKA `22 D8DB` Byte 19/20 zeigen die
@@ -104,3 +141,7 @@ ist nicht beschrieben.
   zu klären: positive Antwort ohne erweiterte Session? Hält die Stufe, und wie lange? Schaltet
   `AKTION 0` sauber ab? Bleibt der Tastenstatus der IHKA konsistent?
 - BDC `E432`/`E430` bleibt der Weg für Autos ohne Sitzmodul (G21).
+- **Alternative ohne App-Schreibbefehle:** die fahrzeugeigene Automatik per Codierung (siehe oben).
+  Für G05-Nutzer mit Sitzmodulen ist das vermutlich der sicherste Weg zur automatischen
+  Sitzheizung. Die App könnte die Codier-DIDs `22 3450` (BDC) später nur lesen und anzeigen, ob die
+  Automatik aktiv ist; die Byte-Lage hängt aber von der CAFD-Version ab.
