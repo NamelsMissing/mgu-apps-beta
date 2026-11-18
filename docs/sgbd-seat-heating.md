@@ -145,3 +145,5 @@ SMFA/SMBF führen aus), ist nicht belegt; BimmerCode bietet die Headunit-Option 
   Für G05-Nutzer mit Sitzmodulen ist das vermutlich der sicherste Weg zur automatischen
   Sitzheizung. Die App könnte die Codier-DIDs `22 3450` (BDC) später nur lesen und anzeigen, ob die
   Automatik aktiv ist; die Byte-Lage hängt aber von der CAFD-Version ab.
+
+Antwortentwurf an den G05-Tester mit Lesetests und der Codier-Alternative: [`issue-2-reply-grot110.md`](issue-2-reply-grot110.md).
