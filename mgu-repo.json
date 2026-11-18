@@ -23,6 +23,39 @@
         "sdk": "oap-sdk",
         "output": "dist/{id}@{version}.tgz"
       }
+    },
+    {
+      "id": "light_show",
+      "kind": "app",
+      "title": "Light Show (beta)",
+      "version": "0.4.0",
+      "path": "apps/light_show",
+      "icon": "icon.png",
+      "mguHmi": [
+        "ID7"
+      ],
+      "requires": {
+        "mgu-light-net": "0.1.0"
+      },
+      "build": {
+        "python": "tools/build_store_app.py",
+        "args": [
+          "{id}"
+        ],
+        "sdk": "oap-sdk",
+        "output": "dist/{id}@{version}.tgz"
+      }
+    },
+    {
+      "id": "mgu-light-net",
+      "kind": "tool",
+      "title": "Light Show Phone Port",
+      "version": "0.1.0",
+      "path": "native/light-net",
+      "mguHmi": [
+        "ID7"
+      ],
+      "uninstallable": true
     }
   ]
 }
