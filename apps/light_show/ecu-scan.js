@@ -7,17 +7,23 @@ const path = require('path');
 const P = require('./protocol');
 const F = require('./flm-control');
 const { INDEX, ECU } = require('./sgbd-index');
+const VehicleOrder = require('./vehicle-order');
 
 const FILE = 'light-show-vehicle.json';
 const hex2 = (n) => ('0' + n.toString(16)).slice(-2).toUpperCase();
 
 // Units at these addresses can carry exterior lighting on F/G-series cars.
+// (BimmerLight's module set for E/F/G cars, reduced to addresses an MGU car can have.)
 const LIGHT_ROLES = Object.freeze({
+    0x10: 'Gateway (ZGW / BCP): vehicle order, identity of the car',
+    0x17: 'Rear light module 1 left', 0x1A: 'Rear light module 1 right',
+    0x1C: 'Rear light module 2 left', 0x1E: 'Rear light module 2 right',
     0x40: 'Body controller: tail, brake, indicators, fog, reverse, plate',
-    0x41: 'Headlamp module left (older)', 0x42: 'Headlamp module right (older)',
     0x43: 'Headlamp module left', 0x44: 'Headlamp module right',
-    0x4F: 'Light effect module', 0x72: 'Footwell module (older body)',
+    0x72: 'Footwell / rear module (older body)',
 });
+// Units Light Show recognises but cannot drive yet (no verified telegrams).
+const DETECT_ONLY = Object.freeze([0x10, 0x17, 0x1A, 0x1C, 0x1E, 0x72]);
 
 function unitName(address, index) {
     const key = hex2(address) + ' ' + index;
@@ -58,28 +64,40 @@ function profile(ids, method, now) {
     };
     const lightUnits = units.filter((u) => u.light);
     lightUnits.forEach((u) => {
-        u.support = u.address === 0x40 ? bdc.support : u.address === 0x43 ? routes.flm.left : u.address === 0x44 ? routes.flm.right : 'unsupported';
+        u.support = u.address === 0x40 ? bdc.support : u.address === 0x43 ? routes.flm.left : u.address === 0x44 ? routes.flm.right
+            : u.address === 0x10 ? 'gateway' : DETECT_ONLY.indexOf(u.address) >= 0 && u.name ? 'detected' : 'unsupported';
         u.supportText = supportText(u.support);
     });
-    return { at: new Date(now || Date.now()).toISOString(), method, units, bdc, flm, routes,
-        summary: units.length + ' control units, ' + lightUnits.length + ' with exterior lighting' };
+    const rear = units.filter((u) => [0x17, 0x1A, 0x1C, 0x1E].indexOf(u.address) >= 0 && u.name);
+    return { at: new Date(now || Date.now()).toISOString(), method, units, bdc, flm, routes, rear: rear.map((u) => u.name),
+        summary: units.length + ' control units, ' + lightUnits.filter((u) => u.address !== 0x10).length + ' with exterior lighting' };
 }
 
-/** Functional scan first; when the transport refuses it, ask the three light addresses directly. */
-async function scan(link, log) {
-    let ids = null, method = 'functional 22 F1 50', note = null;
+/**
+ * Like BimmerLight: all units at once (functional 22 F1 50), then every light address that did
+ * not answer is asked once more on its own, then the vehicle order from the gateway.
+ * progress(text) reports each step.
+ */
+async function scan(link, log, progress) {
+    const say = progress || (() => {});
+    let ids = new Map(), method = 'functional 22 F1 50', note = null;
+    say('Scanning for modules...');
     try { ids = await link.scan(); }
-    catch (e) { note = 'Functional scan failed: ' + (e.message || e); if (log) log.warn('Light Show scan: ' + note); }
-    if (!ids || !ids.size) {
-        method = 'physical 22 F1 50 (0x40, 0x43, 0x44)';
-        ids = new Map();
-        for (const address of [0x40, 0x43, 0x44]) {
-            try { ids.set(address, await link.readIdentity(address)); }
-            catch (e) { if (log) log.info('Light Show scan 0x' + hex2(address) + ': ' + (e.message || e)); }
-        }
+    catch (e) { note = 'Functional scan failed: ' + (e.message || e); method = 'physical 22 F1 50'; if (log) log.warn('Light Show scan: ' + note); }
+    const missing = (link.constructor.SCAN_ADDRESSES || [0x10, 0x40, 0x43, 0x44]).filter((a) => !ids.has(a) || !ids.get(a));
+    if (missing.length) method += ' + ' + missing.length + ' single checks';
+    for (const address of missing) {
+        say('Checking 0x' + hex2(address) + '...');
+        try { ids.set(address, await link.readIdentity(address)); }
+        catch (e) { if (log) log.info('Light Show scan 0x' + hex2(address) + ': ' + (e.message || e)); }
     }
     const result = profile(ids, method);
     if (note) result.note = note;
+    if (ids.has(0x10)) {
+        say('Reading the vehicle order...');
+        try { result.order = VehicleOrder.decode(await link.readVehicleOrder()); }
+        catch (e) { result.orderError = String(e.message || e); }
+    }
     return result;
 }
 
@@ -98,7 +116,7 @@ function save(dir, value) {
 /** Short human text for a support level. */
 function supportText(s) {
     return { verified: 'Supported', experimental: 'Experimental', unsupported: 'Not supported',
-        absent: 'Not found', blocked: 'Needs BDC_G05' }[s] || 'Unknown';
+        absent: 'Not found', blocked: 'Needs BDC_G05', detected: 'Found, not mapped yet', gateway: 'Gateway' }[s] || 'Unknown';
 }
 
-module.exports = { scan, profile, load, save, supportText, unitName, LIGHT_ROLES, FILE };
+module.exports = { scan, profile, load, save, supportText, unitName, LIGHT_ROLES, DETECT_ONLY, FILE };

@@ -3,6 +3,10 @@ const { Diag, replyTo, NRC } = require('./tasu');
 const P = require('./protocol');
 const F = require('./flm-control');
 
+// Addresses the vehicle scan may ask for their identity (BimmerLight's light-module set for
+// G-series: gateway, rear light modules, body, headlamps, older footwell/rear modules).
+const SCAN_ADDRESSES = Object.freeze([0x10, 0x17, 0x1A, 0x1C, 0x1E, 0x40, 0x43, 0x44, 0x72]);
+
 class Link {
     constructor(signals, log, changed, options) {
         this.allowExperimental = (options && options.allowExperimental) || (() => false);
@@ -21,7 +25,11 @@ class Link {
     }
     async request(sid, data, release, address) {
         address = address === undefined ? P.ADDRESS : address;
-        if (address !== P.ADDRESS) {
+        const identityOnly = sid === 0x22 && (P.hex(data) === 'F1 50' || (address === 0x10 && P.hex(data) === '3F 06'));
+        if (address !== P.ADDRESS && SCAN_ADDRESSES.indexOf(address) >= 0 && [0x43, 0x44].indexOf(address) < 0) {
+            // other light-related units: identity and vehicle order only, never control
+            if (!identityOnly) throw new Error('Only identity reads are allowed at 0x' + address.toString(16));
+        } else if (address !== P.ADDRESS) {
             const validAddress = [0x43, 0x44].indexOf(address) >= 0;
             const readOnly = sid === 0x22 && ['F1 50', 'D9 FC'].indexOf(P.hex(data)) >= 0;
             const session = (sid === 0x10 && (P.hex(data) === '03' || P.hex(data) === '01'))
@@ -41,7 +49,7 @@ class Link {
                 maxRetries: 0, callTimeoutMs: 700, hardTimeoutMs: 1200, pendingTimeoutMs: 800,
             });
             record.ms = Date.now() - start; record.rx = u ? P.hex(u) : 'TIMEOUT';
-            const controller = address === P.ADDRESS ? 'BDC' : 'FLM';
+            const controller = address === P.ADDRESS ? 'BDC' : [0x43, 0x44].indexOf(address) >= 0 ? 'FLM' : '0x' + address.toString(16).toUpperCase();
             if (!u || !u.length) throw new Error(controller + ' reply timed out');
             if (u[0] === 0x7F) throw new Error(controller + ' NRC ' + P.hex([u[2]]) + ': ' + (NRC[u[2]] || 'request refused'));
             if (!replyTo(sid, data)(u) || u[0] !== sid + 0x40) throw new Error('Unexpected ' + controller + ' reply');
@@ -97,6 +105,8 @@ class Link {
         const u = await this.request(0x22, [0xF1, 0x50], false, address);
         return P.indexOf(u.slice(3, 6));
     }
+    /** Vehicle order (FA) from the gateway: 22 3F 06, read-only. */
+    async readVehicleOrder() { return this.request(0x22, [0x3F, 0x06], false, 0x10); }
     async flmKeepalive(side) { return this.request(0x3E, [0x00], false, F.moduleFor(side).address); }
     async flmSession(side) { return this.request(0x10, [0x03], false, F.moduleFor(side).address); }
     async flmStart(side, channel, pwm = F.DEFAULT_PWM, seconds = F.DEFAULT_SECONDS) {
@@ -114,3 +124,4 @@ class Link {
     async defaultSession() { return this.request(0x10, [0x01], true); }
 }
 module.exports = Link;
+module.exports.SCAN_ADDRESSES = SCAN_ADDRESSES;

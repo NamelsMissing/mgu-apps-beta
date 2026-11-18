@@ -118,7 +118,7 @@ mgu.run({
             },
             async scan() {
                 await runner.exclusive('SCANNING', 'Reading the identity of every control unit', async () => {
-                    const p = await Scan.scan(link, log);
+                    const p = await Scan.scan(link, log, (text) => runner.update('SCANNING', text));
                     Scan.save(ctx.dataDir, p);
                     profile = p;
                     runner.update('IDLE', 'Scan finished: ' + p.summary);

@@ -103,6 +103,8 @@ function renderCar(){
  var p=S.profile,h='';
  if(!p)h='<div class="note">No scan yet. The scan only reads the identity of every control unit.</div>';
  else{h+='<div class="note">'+esc(p.summary)+' - '+new Date(p.at).toLocaleString()+'</div>';
+  if(p.order)h+='<div class="note">Vehicle order: '+esc(p.order.hints.length?p.order.hints.join(', '):p.order.codes.length+' option codes')+'</div>';
+  if(p.rear&&p.rear.length)h+='<div class="note warn">Rear light modules found ('+esc(p.rear.join(', '))+'): recognised, not controllable yet.</div>';
   h+=p.units.filter(function(u){return u.light}).map(function(u){return '<div class="unit"><code>'+u.addressHex+'</code><div><b>'+esc(u.name||'Unknown '+(u.index||''))+'</b><br><span class="note">'+esc(u.light)+'</span></div><span class="s">'+esc(u.supportText||'')+'</span></div>'}).join('');
   h+='<h2>All control units</h2>'+p.units.map(function(u){return '<div class="unit"><code>'+u.addressHex+'</code><span>'+esc(u.name||u.index||'no identity')+'</span><span class="s note">'+esc(u.role||'')+'</span></div>'}).join('');}
  $('#units').innerHTML=h;$('#exp').checked=!!S.allowExperimental;

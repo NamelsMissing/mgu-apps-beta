@@ -203,26 +203,27 @@ function makeUi(G, colors) {
         if (!p) paragraph(cv, 'Not scanned yet. The scan asks every control unit for its identity (22 F1 50, read-only). Nothing is switched.', EDGE + 24, TOP + 74, 19, t.text, lw - 48, 4);
         else {
             label(cv, p.summary + ' (' + p.method + ')', EDGE + 24, TOP + 62, 15, t.dim, lw - 48);
+            const unit = (a) => p.units.find((u) => u.address === a);
+            const gw = unit(0x10), rear = p.units.filter((u) => [0x17, 0x1A, 0x1C, 0x1E].indexOf(u.address) >= 0 && u.name);
+            const hints = p.order && p.order.hints.length ? p.order.hints.join(', ') : p.order ? p.order.codes.length + ' option codes read' : (p.orderError || 'vehicle order not read');
             const rows = [
+                ['Gateway (0x10)', gw ? (gw.name || gw.index || '-') : '-', gw ? 'gateway' : 'absent', 'Vehicle order: ' + hints],
                 ['Body controller (0x40)', p.bdc.name || p.bdc.index || '-', p.bdc.support, 'Tail, brake, indicators, fog, reverse, plate; light functions'],
                 ['Headlamp left (0x43)', p.flm.left.name || p.flm.left.index || '-', p.routes.flm.left, 'LED channels of the left headlamp'],
                 ['Headlamp right (0x44)', p.flm.right.name || p.flm.right.index || '-', p.routes.flm.right, 'LED channels of the right headlamp'],
+                ['Rear light modules', rear.length ? rear.map((u) => u.name).join(', ') : 'none', rear.length ? 'detected' : 'absent', rear.length ? 'Recognised; control telegrams not mapped yet' : 'Rear lights run through the body controller'],
             ];
             rows.forEach((r, i) => {
-                const y = TOP + 84 + i * 76;
-                card(cv, EDGE + 18, y, lw - 36, 66);
-                label(cv, r[0], EDGE + 36, y + 27, 18, t.text, 300, { font: 'bold' });
-                label(cv, r[1], EDGE + 340, y + 27, 18, t.text, 200);
-                label(cv, r[3], EDGE + 36, y + 51, 14, t.dim, lw - 260);
-                const c = r[2] === 'verified' ? (t.ok || t.accent) : r[2] === 'experimental' ? t.warn : t.crit;
+                const y = TOP + 74 + i * 60;
+                card(cv, EDGE + 18, y, lw - 36, 54);
+                label(cv, r[0], EDGE + 36, y + 23, 17, t.text, 280, { font: 'bold' });
+                label(cv, r[1], EDGE + 320, y + 23, 17, t.text, 250);
+                label(cv, r[3], EDGE + 36, y + 44, 13.5, t.dim, lw - 90);
+                const c = r[2] === 'verified' || r[2] === 'gateway' ? (t.ok || t.accent) : r[2] === 'experimental' || r[2] === 'detected' ? t.warn : t.crit;
                 const txt = m.supportText(r[2]);
-                const cw = cv.textWidth(ascii(txt).toUpperCase(), 13, { font: 'bold', spacing: 1, literal: true }) + 18;
-                chip(cv, EDGE + lw - 36 - cw, y + 12, txt, c, 13);
+                const cw = cv.textWidth(ascii(txt).toUpperCase(), 12, { font: 'bold', spacing: 1, literal: true }) + 18;
+                chip(cv, EDGE + lw - 36 - cw, y + 8, txt, c, 12);
             });
-            const extra = p.units.filter((u) => u.light && [0x40, 0x43, 0x44].indexOf(u.address) < 0);
-            label(cv, extra.length ? 'Also found: ' + extra.map((u) => (u.name || u.addressHex) + ' (' + u.light + ', not used)').join(', ')
-                : 'Experimental: BDC outputs had no visible effect on the tested G21. FLM02X / FLM2_1 need the switch on the right.',
-                EDGE + 24, TOP + 330, 14, t.dim, lw - 48);
         }
         const rx = EDGE + lw + 16, rw = W - EDGE - rx;
         G.panel(cv, t, rx, TOP, rw, FOOT_Y - TOP - 14, '');

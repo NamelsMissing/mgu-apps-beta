@@ -37,6 +37,27 @@ const ids = (pairs) => new Map(pairs);
     console.log('ok: scan profiles (G21 verified, FLM02X experimental, foreign BDC blocked)');
 }
 
+/* ---------- BimmerLight-style detection: rear modules, gateway, vehicle order ---------- */
+{
+    const VO = require(APP + '/vehicle-order');
+    const p = Scan.profile(ids([[0x10, '0F1310'], [0x17, '0F2C10'], [0x1A, '0F2C20'], [0x40, '0F2680'], [0x43, '0F26CC'], [0x44, '0F26DC']]), 't');
+    assert.deepStrictEqual(p.rear, ['RLM2_1L', 'RLM2_1R']);
+    assert.strictEqual(p.units.find((u) => u.address === 0x17).supportText, 'Found, not mapped yet');
+    assert.strictEqual(p.units.find((u) => u.address === 0x10).support, 'gateway');
+    const fa = VO.decode(VO.encode('6L31G0210321066 EHATA080', ['494', '5AC', '5AZ', '552']));
+    assert.deepStrictEqual(fa.codes, ['494', '5AC', '5AZ', '552']);
+    assert.deepStrictEqual(fa.blocks.slice(0, 3), ['6L31', 'G021', '0321']);
+    assert.ok(fa.hints.some((h) => /Laserlight/.test(h)));
+    assert.throws(() => VO.decode([0x7F, 0x22, 0x31]), /No vehicle order/);
+    const Link = require(APP + '/link');
+    const l = new Link({}, { warn() {}, info() {} });
+    l.available = true; l.diag.physical = () => Promise.resolve([0x62, 0xF1, 0x50, 0x0F, 0x2C, 0x10]);
+    l.readIdentity(0x17).then((x) => assert.strictEqual(x, '0F2C10'));
+    assert.rejects(l.request(0x2F, [0x45, 0x01, 0x03, 0x01, 0x01], false, 0x17), /Only identity/);
+    assert.rejects(l.request(0x10, [0x03], false, 0x10), /Only identity/);
+    console.log('ok: gateway, rear light modules and vehicle order are read, never controlled');
+}
+
 /* ---------- catalog ---------- */
 {
     const g21 = Scan.profile(ids([[0x40, '0F2680'], [0x43, '0F26C0'], [0x44, '0F26D0']]), 'test');

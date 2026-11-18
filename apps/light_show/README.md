@@ -1,4 +1,4 @@
-# Light Show 0.4 (beta)
+# Light Show 0.4.1 (beta)
 
 Exterior light shows for BMW G-series cars with the iDrive 7 head unit (MGU), in the spirit of
 Bimmerlight: pick lights, pick an effect, start, from the BMW screen or from your phone.
@@ -29,6 +29,18 @@ Names and test results from 0.3.x are taken over (same app id, same data folder)
   headlamp modules, and the manual "lights checked" confirmation if a recovery file is unreadable.
 - **Phone** - QR code, status of the firewall helper, the server and the phone connection.
 
+## Vehicle scan (modelled on BimmerLight)
+
+1. One functional `22 F1 50` to all control units.
+2. Every light address that did not answer is asked once more on its own: gateway 0x10,
+   rear light modules 0x17 / 0x1A / 0x1C / 0x1E, body 0x40, headlamps 0x43 / 0x44, 0x72.
+3. The vehicle order (`22 3F 06`) is read from the gateway; option codes such as 5AZ (Laserlight)
+   or 552 (Adaptive LED) are shown as a hint.
+
+Only identity and the vehicle order are read at these extra addresses; the app sends no other
+request there. Rear light modules (RLM_1/2, RLM2_1/2, e.g. OLED / laser tail lights) are
+recognised but not controlled yet: their telegrams are not mapped.
+
 ## Supported control units
 
 | Unit | Identity | Status |
@@ -37,6 +49,8 @@ Names and test results from 0.3.x are taken over (same app id, same data folder)
 | Headlamp 0x43 / 0x44 | `FLM02_L/R` (`0F26C0/D0`) | Tested on a G21 with basic LED headlights |
 | Headlamp 0x43 / 0x44 | `FLM02X_L/R` (`0F26C8/D8`), `FLM2_1_L/R` (`0F26CC/DC`) | **Experimental**, only after the switch on *Vehicle*. Same family (adaptive LED / laser hardware), never driven yet |
 | Headlamp | `FLM01`, `FLM03`, `LHM2`, `FLE` | Recognised, not supported |
+| Rear light modules 0x17-0x1E | `RLM_1/2`, `RLM2_1/2` | Recognised, not controlled yet |
+| Gateway 0x10 | `ZGW_01`, `ZGW_SP18`, `BCP_SP21` | Identity and vehicle order only |
 
 Whether the laser element of laser headlights sits on any FLM channel is unknown. If a channel
 turns on something unexpected, like a very bright spot or the headlight adjusting itself, press
