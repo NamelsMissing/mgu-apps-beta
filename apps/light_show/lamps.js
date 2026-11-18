@@ -10,20 +10,41 @@
 const F = require('./flm-control');
 const P = require('./protocol');
 const DiagnosticOutputs = require('./diagnostic-outputs');
+const Rl = require('./rlm-control');
 
 const COLORS = Object.freeze({ white: '#eaf3ff', amber: '#ffae2e', red: '#ff3030', fog: '#fff1c4' });
 const L = -1, R = 1;
 const pt = (side, x, y, z) => [side * x, y, z];
 const pair = (x, y, z) => [pt(L, x, y, z), pt(R, x, y, z)];
 
-// Function lamps (route fn): BDC light functions, both sides at once.
+// Function lamps (route fn): BDC light functions D542. Which ones a car has depends on the BDC
+// variant (protocol.js BODY_VARIANTS). 'side' tells the left/right effects where they belong.
+const F_ = (key, label, short, color, points, group, side) => ({ key, label, short, color, points, group, side: side || 'both' });
+const FRONT_L = [pt(L, 0.66, 0.74, 2.30)], FRONT_R = [pt(R, 0.66, 0.74, 2.30)];
 const FUNCTIONS = Object.freeze([
-    { key: 'high', label: 'High beam', short: 'HIGH', color: 'white', points: pair(0.62, 0.74, 2.30), group: 'front' },
-    { key: 'drl', label: 'Daytime lights', short: 'DRL', color: 'white', points: pair(0.70, 0.78, 2.26), group: 'front' },
-    { key: 'position', label: 'Position lights', short: 'POS', color: 'white',
-        points: pair(0.72, 0.76, 2.24).concat(pair(0.70, 0.92, -2.30)), group: 'front' },
-    { key: 'fog', label: 'Front fog lights', short: 'FOG', color: 'fog', points: pair(0.66, 0.34, 2.32), group: 'front' },
+    F_('high', 'High beam', 'HIGH', 'white', pair(0.62, 0.74, 2.30), 'front'),
+    F_('low', 'Low beam', 'LOW', 'white', pair(0.58, 0.70, 2.30), 'front'),
+    F_('drl', 'Daytime lights', 'DRL', 'white', pair(0.70, 0.78, 2.26), 'front'),
+    F_('position', 'Side lights (front + rear)', 'POS', 'white', pair(0.72, 0.76, 2.24).concat(pair(0.70, 0.92, -2.30)), 'front'),
+    F_('fog', 'Front fog lights', 'FOG', 'fog', pair(0.66, 0.34, 2.32), 'front'),
+    F_('cornerLeft', 'Cornering light left', 'CRN L', 'white', [pt(L, 0.74, 0.66, 2.24)], 'front', 'left'),
+    F_('cornerRight', 'Cornering light right', 'CRN R', 'white', [pt(R, 0.74, 0.66, 2.24)], 'front', 'right'),
+    F_('indLeft', 'Indicators left', 'IND L', 'amber', [pt(L, 0.82, 0.72, 2.16), pt(L, 0.98, 1.02, 0.92), pt(L, 0.78, 0.90, -2.26)], 'side', 'left'),
+    F_('indRight', 'Indicators right', 'IND R', 'amber', [pt(R, 0.82, 0.72, 2.16), pt(R, 0.98, 1.02, 0.92), pt(R, 0.78, 0.90, -2.26)], 'side', 'right'),
+    F_('hazard', 'Hazard lights', 'HAZ', 'amber', pair(0.82, 0.72, 2.16).concat(pair(0.78, 0.90, -2.26)), 'side'),
+    F_('parkLeft', 'Parking light left', 'PRK L', 'red', [pt(L, 0.72, 0.76, 2.24), pt(L, 0.70, 0.92, -2.30)], 'side', 'left'),
+    F_('parkRight', 'Parking light right', 'PRK R', 'red', [pt(R, 0.72, 0.76, 2.24), pt(R, 0.70, 0.92, -2.30)], 'side', 'right'),
+    F_('brake', 'Brake lights', 'BRK', 'red', pair(0.68, 0.86, -2.30).concat([[0, 1.38, -2.05]]), 'rear'),
+    F_('rearFog', 'Rear fog light', 'RFOG', 'red', pair(0.55, 0.36, -2.36), 'rear'),
+    F_('reverse', 'Reversing lights', 'REV', 'white', pair(0.42, 0.86, -2.33), 'rear'),
+    F_('locator', 'Locator / functional lighting', 'LOC', 'white', pair(0.70, 0.78, 2.26).concat(pair(0.70, 0.92, -2.30)), 'side'),
+    F_('grille', 'Illuminated kidney grille', 'GRL', 'white', [[0.14, 0.66, 2.38], [-0.14, 0.66, 2.38]], 'front'),
+    F_('maneuver', 'Manoeuvring light', 'MAN', 'white', pair(0.96, 0.40, 1.60).concat(pair(0.96, 0.40, -1.60)), 'side'),
+    F_('welcome', 'Welcome light', 'WEL', 'white', pair(0.70, 0.78, 2.26).concat(pair(0.70, 0.92, -2.30)), 'side'),
+    F_('goodbye', 'Goodbye light', 'BYE', 'white', pair(0.70, 0.78, 2.26).concat(pair(0.70, 0.92, -2.30)), 'side'),
 ]);
+// Rear light modules: position on the car per slot (1 = outer, 2 = inner / tailgate).
+const RLM_PLACE = Object.freeze({ 0x17: [L, 0.74], 0x1A: [R, 0.74], 0x1C: [L, 0.46], 0x1E: [R, 0.46] });
 
 // BDC outputs (route out): position and colour per output id.
 const OUTPUT_PLACE = Object.freeze({
@@ -51,9 +72,17 @@ const GROUP_ORDER = Object.freeze({ front: 0, side: 1, rear: 2 });
 function flmId(side, channel) { return 'flm:' + side + ':' + channel; }
 function parse(id) {
     const s = String(id || '').split(':');
-    if (s[0] === 'flm' && (s[1] === 'left' || s[1] === 'right') && /^([1-9]|1[0-5])$/.test(s[2]))
+    if (s[0] === 'flm' && (s[1] === 'left' || s[1] === 'right') && /^([1-9]|1[0-7])$/.test(s[2]))
         return { route: 'flm', side: s[1], channel: Number(s[2]) };
     if (s[0] === 'fn' && s.length === 2 && FUNCTIONS.some((f) => f.key === s[1])) return { route: 'fn', key: s[1] };
+    if (s[0] === 'rlm' && s.length === 3 && /^(17|1a|1c|1e)$/.test(s[1])) {
+        const address = parseInt(s[1], 16), m = /^([fc])(\d{1,2})$/.exec(s[2]);
+        if (!m) return null;
+        const item = Number(m[2]);
+        if (m[1] === 'f' && Rl.FUNCTIONS[item]) return { route: 'rlm', address, kind: 'fn', item };
+        if (m[1] === 'c' && item >= 1 && item <= Rl.CHANNELS_RLM1) return { route: 'rlm', address, kind: 'ch', item };
+        return null;
+    }
     if (s[0] === 'out' && s.length === 2 && /^[0-9]{1,2}$/.test(s[1]) && DiagnosticOutputs.OUTPUTS[Number(s[1])])
         return { route: 'out', output: Number(s[1]) };
     return null;
@@ -68,28 +97,32 @@ function catalog(profile, names, options) {
     const o = options || {}, routes = profile && profile.routes;
     const out = [];
     const why = (support) => !routes ? 'Run the vehicle scan first'
-        : support === 'verified' ? '' : support === 'experimental' ? (o.allowExperimental ? '' : 'Experimental module: enable in Vehicle')
-        : support === 'blocked' ? 'Body controller BDC_G05 not found' : support === 'absent' ? 'Module not found in this car'
+        : support === 'verified' || support === 'prg' ? '' : support === 'experimental' ? (o.allowExperimental ? '' : 'Experimental module: enable in Vehicle')
+        : support === 'blocked' ? 'No supported body controller found' : support === 'absent' ? 'Module not found in this car'
         : 'Module variant not supported';
     for (const side of ['left', 'right']) {
         const support = routes ? routes.flm[side] : null, s = side === 'left' ? L : R;
-        for (let c = 1; c <= 15; c++) {
+        const fv = profile && profile.flm && profile.flm[side].index ? F.variant(side, profile.flm[side].index) : null;
+        for (let c = 1; c <= (fv ? fv.channels : 15); c++) {
             const id = flmId(side, c), name = names ? names.name(id) : '';
             out.push({ id, route: 'flm', side, channel: c, group: 'front', color: 'white', hex: COLORS.white,
                 label: name || (side === 'left' ? 'Left' : 'Right') + ' headlamp LED ' + c,
                 short: (side === 'left' ? 'L' : 'R') + c, named: !!name,
                 points: [pt(s, 0.50 + c * 0.017, 0.70 + (c % 3) * 0.022, 2.28 - c * 0.006)],
-                module: F.MODULES[side].name, available: !why(support), why: why(support), support });
+                module: fv ? fv.name : F.MODULES[side].name, available: !why(support), why: why(support), support });
         }
     }
-    const fnSupport = routes ? routes.fn : null;
+    const fnSupport = routes ? routes.fn : null, fnList = profile && profile.bdc && profile.bdc.functions;
+    const bodyName = (profile && profile.bdc && profile.bdc.name) || 'BDC';
     for (const f of FUNCTIONS) {
         const id = 'fn:' + f.key;
-        out.push({ id, route: 'fn', key: f.key, side: 'both', group: f.group, color: f.color, hex: COLORS[f.color],
-            label: (names && names.name(id)) || f.label + ' (both)', short: f.short, points: f.points,
-            module: 'BDC_G05 D542', available: !why(fnSupport), why: why(fnSupport), support: fnSupport });
+        if (fnList && fnList.length && fnList.indexOf(f.key) < 0) continue;
+        out.push({ id, route: 'fn', key: f.key, side: f.side, group: f.group, color: f.color, hex: COLORS[f.color],
+            label: (names && names.name(id)) || f.label, short: f.short, points: f.points,
+            module: bodyName + ' light function', available: !why(fnSupport), why: why(fnSupport), support: fnSupport });
     }
     const outSupport = routes ? routes.out : null;
+    if (profile && profile.bdc && profile.bdc.present && !profile.bdc.outputs) return out.concat(rlmLamps(profile, names));
     for (const group of DiagnosticOutputs.GROUPS) for (const [idNum, label, prg] of group.lights) {
         const p = OUTPUT_PLACE[idNum];
         if (!p) continue;
@@ -99,6 +132,26 @@ function catalog(profile, names, options) {
             label: (names && names.name(id)) || label, short: prg, points: [pt(p[0] || 1, p[0] ? p[1] : 0, p[2], p[3])],
             module: 'BDC_G05 E3B5', available: !why(outSupport === 'experimental' ? 'verified' : outSupport),
             why: why(outSupport === 'experimental' ? 'verified' : outSupport), support: outSupport, experimental: true });
+    }
+    return out.concat(rlmLamps(profile, names));
+}
+function rlmLamps(profile, names) {
+    const out = [];
+    for (const r of (profile && profile.rlm) || []) {
+        if (!r.kind) continue;
+        const place = RLM_PLACE[r.address], hx = r.address.toString(16);
+        const items = r.kind === 'fn' ? Object.keys(Rl.FUNCTIONS).map(Number) : Array.from({ length: Rl.CHANNELS_RLM1 }, (_, i) => i + 1);
+        for (const item of items) {
+            const fn = r.kind === 'fn' ? Rl.FUNCTIONS[item] : null, color = fn ? fn.color : 'red';
+            const id = 'rlm:' + hx + ':' + (r.kind === 'fn' ? 'f' : 'c') + item;
+            const sideName = r.side === 'left' ? 'Left' : 'Right', part = Rl.MODULES[r.address].position === 'outer' ? 'outer' : 'inner';
+            out.push({ id, route: 'rlm', address: r.address, kind: r.kind, item, group: 'rear', side: r.side, color, hex: COLORS[color],
+                label: (names && names.name(id)) || sideName + ' ' + part + ' tail light ' + (fn ? fn.name : 'LED ' + item),
+                short: (r.side === 'left' ? 'L' : 'R') + (part === 'outer' ? 'o' : 'i') + (fn ? fn.key : item),
+                points: [pt(place[0], place[1] + (fn ? 0 : item * 0.012), 0.90 - (fn ? item * 0.01 : 0), -2.30)],
+                module: r.name, available: r.support === 'prg', why: r.support === 'prg' ? '' : 'Rear light module not supported',
+                support: r.support });
+        }
     }
     return out;
 }
@@ -116,5 +169,5 @@ function centroid(l) {
 function sideOf(l) { return l.side === 'left' || l.side === 'right' ? l.side : null; }
 
 module.exports = { catalog, parse, flmId, spatialOrder, centroid, sideOf, FUNCTIONS, OUTPUT_PLACE, COLORS, GROUP_ORDER };
-// Keep protocol import referenced: fn keys must exist in the BDC function table.
+// fn keys must exist in the BDC function table.
 FUNCTIONS.forEach((f) => { if (!P.FUNCTIONS[f.key]) throw new Error('Unknown BDC light function ' + f.key); });

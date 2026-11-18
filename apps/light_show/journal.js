@@ -7,6 +7,7 @@ const path = require('path');
 const P = require('./protocol');
 const F = require('./flm-control');
 const DiagnosticOutputs = require('./diagnostic-outputs');
+const R = require('./rlm-control');
 
 function clean(control) {
     const c = control || {};
@@ -16,9 +17,16 @@ function clean(control) {
     fns.forEach((k) => { if (!P.FUNCTIONS[k]) throw new Error('Invalid recovery light function'); });
     const outputs = Array.from(new Set(c.outputs || []));
     outputs.forEach((id) => DiagnosticOutputs.get(id));
+    const rlm = (c.rlm || []).map((r) => {
+        R.module(r.address);
+        if (r.kind !== 'fn' && r.kind !== 'ch') throw new Error('Invalid recovery rear light route');
+        const items = Array.from(new Set(r.items || []));
+        items.forEach((i) => R.telegram(r.kind, i, 0, 60));
+        return { address: r.address, kind: r.kind, items };
+    });
     const bdcSession = !!c.bdcSession || fns.length > 0 || outputs.length > 0;
-    if (!flmSides.length && !bdcSession) throw new Error('Nothing to recover');
-    return { flmSides, fns, outputs, bdcSession };
+    if (!flmSides.length && !bdcSession && !rlm.length) throw new Error('Nothing to recover');
+    return { flmSides, fns, outputs, bdcSession, rlm };
 }
 
 /** Light Show 0.3.x markers -> the 0.4 form. */
@@ -47,7 +55,7 @@ class Journal {
         catch (_) { return null; }
     }
     mark(index, control) {
-        if (index !== P.INDEX) throw new Error('BDC_G05 identity required');
+        if (!P.bodyVariant(index)) throw new Error('Supported body controller identity required');
         const value = Object.assign({ version: 2, index, at: new Date().toISOString() }, clean(control));
         fs.writeFileSync(this.file + '.tmp', JSON.stringify(value));
         fs.renameSync(this.file + '.tmp', this.file); this.value = value;

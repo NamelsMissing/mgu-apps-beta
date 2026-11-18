@@ -24,17 +24,20 @@ const ids = (pairs) => new Map(pairs);
 /* ---------- vehicle scan ---------- */
 {
     const g21 = Scan.profile(ids([[0x40, '0F2680'], [0x43, '0F26C0'], [0x44, '0F26D0'], [0x60, null]]), 'test');
-    assert.deepStrictEqual(g21.routes, { flm: { left: 'verified', right: 'verified' }, fn: 'verified', out: 'experimental' });
+    assert.deepStrictEqual(g21.routes, { flm: { left: 'verified', right: 'verified' }, fn: 'verified', out: 'experimental', rlm: [] });
     assert.strictEqual(g21.bdc.name, 'BDC_G05');
     assert.strictEqual(g21.flm.left.name, 'FLM02_L');
     const laser = Scan.profile(ids([[0x40, '0F2680'], [0x43, '0F26C8'], [0x44, '0F26D8']]), 'test');
-    assert.deepStrictEqual(laser.routes.flm, { left: 'experimental', right: 'experimental' });
-    const other = Scan.profile(ids([[0x40, '0F2050'], [0x43, '0F26C0']]), 'test');
+    assert.deepStrictEqual(laser.routes.flm, { left: 'prg', right: 'prg' }, 'FLM02X uses the same FLM_KANAL routine (PRG)');
+    const g11 = Scan.profile(ids([[0x40, '0F2050'], [0x43, '0F26C0']]), 'test');
+    assert.strictEqual(g11.routes.fn, 'prg'); assert.strictEqual(g11.routes.out, 'unsupported');
+    assert.ok(g11.bdc.functions.indexOf('grille') >= 0 && g21.bdc.functions.indexOf('grille') < 0);
+    const other = Scan.profile(ids([[0x40, '0F1234'], [0x43, '0F26C0']]), 'test');
     assert.strictEqual(other.bdc.support, 'unsupported');
     assert.strictEqual(other.routes.flm.left, 'blocked', 'no FLM route without BDC_G05');
     assert.strictEqual(other.routes.flm.right, 'absent');
     assert.strictEqual(other.routes.fn, 'unsupported');
-    console.log('ok: scan profiles (G21 verified, FLM02X experimental, foreign BDC blocked)');
+    console.log('ok: scan profiles (G21 verified, FLM02X and BDC_G11 from PRG, unknown BDC blocked)');
 }
 
 /* ---------- BimmerLight-style detection: rear modules, gateway, vehicle order ---------- */
@@ -42,7 +45,7 @@ const ids = (pairs) => new Map(pairs);
     const VO = require(APP + '/vehicle-order');
     const p = Scan.profile(ids([[0x10, '0F1310'], [0x17, '0F2C10'], [0x1A, '0F2C20'], [0x40, '0F2680'], [0x43, '0F26CC'], [0x44, '0F26DC']]), 't');
     assert.deepStrictEqual(p.rear, ['RLM2_1L', 'RLM2_1R']);
-    assert.strictEqual(p.units.find((u) => u.address === 0x17).supportText, 'Found, not mapped yet');
+    assert.strictEqual(p.units.find((u) => u.address === 0x17).supportText, 'From BMW data');
     assert.strictEqual(p.units.find((u) => u.address === 0x10).support, 'gateway');
     const fa = VO.decode(VO.encode('6L31G0210321066 EHATA080', ['494', '5AC', '5AZ', '552']));
     assert.deepStrictEqual(fa.codes, ['494', '5AC', '5AZ', '552']);
@@ -53,9 +56,18 @@ const ids = (pairs) => new Map(pairs);
     const l = new Link({}, { warn() {}, info() {} });
     l.available = true; l.diag.physical = () => Promise.resolve([0x62, 0xF1, 0x50, 0x0F, 0x2C, 0x10]);
     l.readIdentity(0x17).then((x) => assert.strictEqual(x, '0F2C10'));
-    assert.rejects(l.request(0x2F, [0x45, 0x01, 0x03, 0x01, 0x01], false, 0x17), /Only identity/);
+    assert.rejects(l.request(0x2F, [0x45, 0x01, 0x03, 0x01, 0x01], false, 0x17), /not allowed/);
     assert.rejects(l.request(0x10, [0x03], false, 0x10), /Only identity/);
-    console.log('ok: gateway, rear light modules and vehicle order are read, never controlled');
+    assert.rejects(l.request(0x2E, [0xA8, 0x3B, 0x02, 0x01], false, 0x17), /not identified/, 'no light telegram before identity');
+    const R = require(APP + '/rlm-control');
+    assert.deepStrictEqual(R.telegram('fn', 2, 1500), [0xA8, 0x3B, 0x02, 0x02]);
+    assert.deepStrictEqual(R.telegram('fn', 2, 0), [0xA8, 0x3B, 0x02, 0x00]);
+    assert.deepStrictEqual(R.telegram('ch', 3, 500, 40), [0xD6, 0xDA, 0x03, 0x01, 0x28]);
+    assert.throws(() => R.telegram('fn', 0x07, 500), /Unknown/);
+    assert.ok(!R.permitted([0xA8, 0x3B, 0x02, 0xFF]), 'never permanent on');
+    const P = require(APP + '/protocol');
+    assert.deepStrictEqual(P.timedControl('brake', 500), [0xD5, 0x42, 0x00, 0x0C, 0x00, 0x32]);
+    console.log('ok: gateway, rear light modules and vehicle order are read; light telegrams match the PRGs');
 }
 
 /* ---------- catalog ---------- */
@@ -63,16 +75,23 @@ const ids = (pairs) => new Map(pairs);
     const g21 = Scan.profile(ids([[0x40, '0F2680'], [0x43, '0F26C0'], [0x44, '0F26D0']]), 'test');
     const all = Lamps.catalog(g21, null, {});
     assert.strictEqual(all.filter((l) => l.route === 'flm').length, 30);
-    assert.strictEqual(all.filter((l) => l.route === 'fn').length, 4);
+    assert.strictEqual(all.filter((l) => l.route === 'fn').length, 19, 'all exterior D542 functions of BDC_G05');
+    assert.ok(all.some((l) => l.id === 'fn:indLeft' && l.side === 'left'));
     assert.ok(all.filter((l) => l.route === 'out').length >= 30, 'all BDC exterior outputs listed');
     assert.ok(all.every((l) => l.available));
     assert.ok(all.some((l) => l.group === 'rear' && l.color === 'red'));
     all.forEach((l) => assert.deepStrictEqual(Lamps.parse(l.id) && Lamps.parse(l.id).route, l.route));
     const laser = Scan.profile(ids([[0x40, '0F2680'], [0x43, '0F26C8'], [0x44, '0F26D8']]), 'test');
-    assert.ok(Lamps.catalog(laser, null, {}).filter((l) => l.route === 'flm').every((l) => !l.available && /Experimental/.test(l.why)));
-    assert.ok(Lamps.catalog(laser, null, { allowExperimental: true }).filter((l) => l.route === 'flm').every((l) => l.available));
+    const lf = Lamps.catalog(laser, null, {}).filter((l) => l.route === 'flm');
+    assert.strictEqual(lf.length, 34, 'FLM02X has 17 channels per side'); assert.ok(lf.every((l) => l.available));
+    const rear = Scan.profile(ids([[0x40, '0F2680'], [0x17, '0F2C10'], [0x1A, '0F23D0']]), 'test');
+    const rl = Lamps.catalog(rear, null, {}).filter((l) => l.route === 'rlm');
+    assert.strictEqual(rl.filter((l) => l.kind === 'fn').length, 9, 'RLM2: 9 light functions');
+    assert.strictEqual(rl.filter((l) => l.kind === 'ch').length, 8, 'RLM_1: 8 channels');
+    rl.forEach((l) => assert.deepStrictEqual(Lamps.parse(l.id).route, 'rlm'));
     assert.ok(Lamps.catalog(null, null, {}).every((l) => !l.available), 'nothing before the first scan');
-    assert.strictEqual(Lamps.parse('flm:left:16'), null);
+    assert.strictEqual(Lamps.parse('flm:left:18'), null);
+    assert.strictEqual(Lamps.parse('rlm:18:f2'), null);
     assert.strictEqual(Lamps.parse('out:999'), null);
     console.log('ok: lamp catalog follows the scan and the experimental switch');
 }
@@ -121,9 +140,9 @@ const base = { stepMs: 500, gapMs: 100, cycles: 2, pwm: 60 };
     assert.deepStrictEqual(Journal.migrate({ route: 'flm_show', sides: ['left', 'right'] }), { flmSides: ['left', 'right'] });
     assert.deepStrictEqual(Journal.migrate({ route: 'single', outputId: 24 }), { outputs: [24], bdcSession: true });
     const j = new Journal(dir);
-    assert.throws(() => j.mark('0F2050', { flmSides: ['left'] }), /BDC_G05/);
-    j.mark('0F2680', { flmSides: ['left'], outputs: [24] });
-    assert.deepStrictEqual(new Journal(dir).control(), { flmSides: ['left'], fns: [], outputs: [24], bdcSession: true });
+    assert.throws(() => j.mark('0F1234', { flmSides: ['left'] }), /body controller/);
+    j.mark('0F2680', { flmSides: ['left'], outputs: [24], rlm: [{ address: 0x17, kind: 'fn', items: [2] }] });
+    assert.deepStrictEqual(new Journal(dir).control(), { flmSides: ['left'], fns: [], outputs: [24], bdcSession: true, rlm: [{ address: 0x17, kind: 'fn', items: [2] }] });
     fs.writeFileSync(path.join(dir, 'light-show-recovery.json'), '{broken');
     assert.strictEqual(new Journal(dir).control(), null, 'unreadable marker needs the manual light check');
     console.log('ok: 0.3.x names, observations and recovery markers are taken over safely');
@@ -144,6 +163,11 @@ class FakeLink {
     flmStart(s, c, pwm, sec) { F.start(c, pwm, sec); return this.rec(s + ':start' + c); }
     flmStop(s) { return this.rec(s + ':stop'); }
     timed(k, ms) { return this.rec('fn:' + k + ':' + ms); }
+    identifyRlm(a) { return this.rec('id:rlm' + a.toString(16)).then(() => ({ name: 'RLM2_1L', kind: 'fn' })); }
+    rlmSession(a) { return this.rec('rlm' + a.toString(16) + ':03'); }
+    rlmDefaultSession(a) { return this.rec('rlm' + a.toString(16) + ':01'); }
+    rlmKeepalive(a) { return this.rec('rlm' + a.toString(16) + ':3E'); }
+    rlmSet(a, kind, item, ms) { return this.rec('rlm' + a.toString(16) + ':' + kind + item + ':' + (ms ? 'on' : 'off')); }
     set(id, on) { return this.rec('out:' + id + ':' + on); }
 }
 function runnerWith(link, guardReason) {
@@ -197,12 +221,24 @@ const byId = {}; g21Lamps.forEach((l) => { byId[l.id] = l; });
         console.log('ok: a failed release keeps the recovery marker until STOP succeeds');
     }
     {
-        const link = new FakeLink({ flm: '0F26C8' }), { r, journal } = runnerWith(link);
-        const laserLamp = Object.assign({}, byId['flm:left:1']);
-        const res = await r.test(laserLamp, {});
+        const link = new FakeLink({ flm: '0F2E30' }), { r, journal } = runnerWith(link);
+        const res = await r.test(Object.assign({}, byId['flm:left:1']), {});
         assert.ok(!res.ok && /unsupported/.test(res.error));
         assert.ok(!journal.pending()); assert.ok(link.log.every((x) => x.indexOf('id:') === 0));
-        console.log('ok: experimental headlamp module refused without opt-in, nothing switched');
+        console.log('ok: unsupported headlamp module (FLM03) refused, nothing switched');
+    }
+    {
+        const rp = Scan.profile(ids([[0x40, '0F2680'], [0x43, '0F26C0'], [0x44, '0F26D0'], [0x17, '0F2C10'], [0x1A, '0F2C20']]), 't');
+        const cat = Lamps.catalog(rp, null, {}), m = {}; cat.forEach((l) => { m[l.id] = l; });
+        const link = new FakeLink(), { r, journal } = runnerWith(link);
+        const plan = Effects.plan(['rlm:17:f2', 'rlm:1a:f2', 'fn:indLeft', 'fn:indRight'], cat, Object.assign({ effect: 'wigwag' }, base, { cycles: 1 }));
+        const res = await r.play(plan, m);
+        assert.ok(res.ok, JSON.stringify(res));
+        const l = link.log;
+        assert.ok(l.indexOf('id:rlm17') < l.indexOf('rlm17:03') && l.indexOf('rlm17:03') < l.indexOf('rlm17:fn2:on'));
+        assert.deepStrictEqual(l.slice(-7), ['fn:indLeft:0', 'fn:indRight:0', 'rlm17:fn2:off', 'rlm17:01', 'rlm1a:fn2:off', 'rlm1a:01', 'bdc:01']);
+        assert.ok(!journal.pending());
+        console.log('ok: rear light modules and BDC indicator functions play and are released');
     }
 
     /* ---------- car3d ---------- */

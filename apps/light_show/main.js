@@ -34,7 +34,7 @@ mgu.run({
         catch (e) { if (e.code !== 'ENOENT') log.warn('Light Show config: ' + e.message); }
 
         let page = PAGE.SHOW, lightsPage = 0, unitsPage = 0, selectedLamp = null, lastTested = null;
-        let showAll = false, notice = null, noticeAt = 0, yaw = 0.8, dirty = true;
+        let showAll = false, groupFilter = null, notice = null, noticeAt = 0, yaw = 0.8, dirty = true;
         const changed = () => { dirty = true; };
         const say = (text) => { notice = text; noticeAt = Date.now(); changed(); };
 
@@ -156,7 +156,7 @@ mgu.run({
 
         /* ---------- car screen ---------- */
         const run = (fn) => () => { try { const v = fn(); if (v && v.catch) v.catch((e) => say(String(e.message || e))); } catch (e) { say(String(e.message || e)); } changed(); };
-        const visibleList = () => lamps().filter((l) => showAll || l.available);
+        const visibleList = () => lamps().filter((l) => (showAll || l.available) && (!groupFilter || l.group === groupFilter));
         const a = {
             effect: (id) => run(() => saveConfig({ effect: id }))(),
             nextStep: run(() => saveConfig({ stepMs: next(Effects.STEP_MS, config.stepMs) })),
@@ -171,6 +171,7 @@ mgu.run({
             toggle: run(() => actions.toggle(selectedLamp)),
             rename: run(() => { const n = names.cycle(selectedLamp); say(n ? 'Name: ' + n : 'Default name restored'); }),
             toggleAll: run(() => { showAll = !showAll; lightsPage = 0; }),
+            nextGroup: run(() => { groupFilter = next([null, 'front', 'side', 'rear'], groupFilter); lightsPage = 0; }),
             prevLights: run(() => { lightsPage = Math.max(0, lightsPage - 1); }),
             nextLights: run(() => { lightsPage = Math.min(Math.max(0, Math.ceil(visibleList().length / LIGHTS_PER_PAGE) - 1), lightsPage + 1); }),
             nextUnits: run(() => { unitsPage = profile && (unitsPage + 1) * 12 < profile.units.length ? unitsPage + 1 : 0; }),
@@ -186,7 +187,7 @@ mgu.run({
 
         function viewModel() {
             const list = lamps(), r = runner.status(), why = guard.reason();
-            const shown = list.filter((l) => showAll || l.available);
+            const shown = list.filter((l) => (showAll || l.available) && (!groupFilter || l.group === groupFilter));
             if (selectedLamp && !shown.some((l) => l.id === selectedLamp)) selectedLamp = null;
             if (!selectedLamp && shown.length) selectedLamp = shown[0].id;
             const sel = new Set(config.selection), act = new Set(r.active);
@@ -196,7 +197,7 @@ mgu.run({
                 runner: r, config, effects: Effects.EFFECTS, plan: currentPlan(list), profile, notice,
                 allowExperimental: config.allowExperimental, supportText: Scan.supportText,
                 recoveryUnreadable: journal.pending() && !journal.control(),
-                lightList: shown, lightsPage, unitsPage, selectedLamp, lastTested, showAll,
+                lightList: shown, lightsPage, unitsPage, selectedLamp, lastTested, showAll, groupFilter,
                 carLamps: list.filter((l) => l.available && (sel.has(l.id) || act.has(l.id)))
                     .map((l) => ({ points: l.points, hex: l.hex, on: act.has(l.id), dim: !act.has(l.id) })),
                 phone: { link: server.url(), ready: server.listening, listening: server.listening, error: server.error,

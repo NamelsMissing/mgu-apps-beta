@@ -11,9 +11,9 @@ const MODULES = Object.freeze({
 // were not checked, so FLM_KANAL there is experimental and needs an explicit opt-in.
 const VARIANTS = Object.freeze({
     left: Object.freeze({
-        '0F26C0': Object.freeze({ name: 'FLM02_L', support: 'verified' }),
-        '0F26C8': Object.freeze({ name: 'FLM02X_L', support: 'experimental' }),
-        '0F26CC': Object.freeze({ name: 'FLM2_1_L', support: 'experimental' }),
+        '0F26C0': Object.freeze({ name: 'FLM02_L', support: 'verified', channels: 15 }),
+        '0F26C8': Object.freeze({ name: 'FLM02X_L', support: 'prg', channels: 17 }),
+        '0F26CC': Object.freeze({ name: 'FLM2_1_L', support: 'prg', channels: 17 }),
         '0F2200': Object.freeze({ name: 'FLM01_L', support: 'unsupported' }),
         '0F2E30': Object.freeze({ name: 'FLM03_L', support: 'unsupported' }),
         '0F1B20': Object.freeze({ name: 'LHM2_L', support: 'unsupported' }),
@@ -21,9 +21,9 @@ const VARIANTS = Object.freeze({
         '0F1E28': Object.freeze({ name: 'FLE02_L', support: 'unsupported' }),
     }),
     right: Object.freeze({
-        '0F26D0': Object.freeze({ name: 'FLM02_R', support: 'verified' }),
-        '0F26D8': Object.freeze({ name: 'FLM02X_R', support: 'experimental' }),
-        '0F26DC': Object.freeze({ name: 'FLM2_1_R', support: 'experimental' }),
+        '0F26D0': Object.freeze({ name: 'FLM02_R', support: 'verified', channels: 15 }),
+        '0F26D8': Object.freeze({ name: 'FLM02X_R', support: 'prg', channels: 17 }),
+        '0F26DC': Object.freeze({ name: 'FLM2_1_R', support: 'prg', channels: 17 }),
         '0F2210': Object.freeze({ name: 'FLM01_R', support: 'unsupported' }),
         '0F2E40': Object.freeze({ name: 'FLM03_R', support: 'unsupported' }),
         '0F1B30': Object.freeze({ name: 'LHM2_R', support: 'unsupported' }),
@@ -39,7 +39,7 @@ function variant(side, index) {
 /** May FLM_KANAL be sent to this identity? Experimental variants only with the opt-in. */
 function usable(side, index, allowExperimental) {
     const v = variant(side, index);
-    return !!v && (v.support === 'verified' || (v.support === 'experimental' && !!allowExperimental));
+    return !!v && (v.support === 'verified' || v.support === 'prg' || (v.support === 'experimental' && !!allowExperimental));
 }
 const PWM_OPTIONS = Object.freeze([20, 40, 60, 80, 100]);
 const SECOND_OPTIONS = Object.freeze([1, 2, 3, 5]);
@@ -48,8 +48,9 @@ function moduleFor(side) {
     if (!Object.prototype.hasOwnProperty.call(MODULES, side)) throw new Error('Unsupported FLM side');
     return MODULES[side];
 }
+const MAX_CHANNEL = 17;
 function channelNumber(n) {
-    if (!Number.isInteger(n) || n < 1 || n > 15) throw new Error('Only FLM LED channels 1-15 are allowed');
+    if (!Number.isInteger(n) || n < 1 || n > MAX_CHANNEL) throw new Error('Only FLM LED channels 1-' + MAX_CHANNEL + ' are allowed');
     return n;
 }
 function settings(pwm, seconds) {

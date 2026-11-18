@@ -9,12 +9,42 @@ const ADDRESS = 0x40;
 const INDEX = '0F2680';
 const DID = [0xE3, 0xB5];
 const FUNCTION_DID = [0xD5, 0x42];
+// D542 LEUCHTEN_FUNKTION elements (TAB_LEUCHTEN_FUNKTION_ARG in BDC_G05.prg, TAB_LAMPEN_FUNKTION in
+// BDC_G11.prg / BDC.prg; same ids where they overlap). ELEMENT s16, ZEIT s16 in 10 ms, 0 = off.
+// Only exterior functions; interior, ESS, OVT, remote and special flashing are left out.
 const FUNCTIONS = {
-    high: { id: 5, name: 'High beam function (both)' },
-    drl: { id: 4, name: 'Daytime light function (both)' },
-    position: { id: 1, name: 'Sidelight function (front/rear)' },
-    fog: { id: 8, name: 'Front fog light function (both)' },
+    position: { id: 0x01, name: 'Side lights (front and rear)' },
+    low: { id: 0x03, name: 'Low beam' },
+    drl: { id: 0x04, name: 'Daytime lights' },
+    high: { id: 0x05, name: 'High beam' },
+    indLeft: { id: 0x06, name: 'Indicator left' },
+    indRight: { id: 0x07, name: 'Indicator right' },
+    fog: { id: 0x08, name: 'Front fog lights' },
+    cornerLeft: { id: 0x09, name: 'Cornering light left' },
+    cornerRight: { id: 0x0A, name: 'Cornering light right' },
+    brake: { id: 0x0C, name: 'Brake lights' },
+    rearFog: { id: 0x0E, name: 'Rear fog light' },
+    reverse: { id: 0x0F, name: 'Reversing lights' },
+    parkLeft: { id: 0x10, name: 'Parking light left' },
+    parkRight: { id: 0x11, name: 'Parking light right' },
+    hazard: { id: 0x12, name: 'Hazard lights' },
+    locator: { id: 0x15, name: 'Locator / functional lighting' },
+    grille: { id: 0x16, name: 'Illuminated kidney grille' },
+    maneuver: { id: 0x18, name: 'Manoeuvring light' },
+    welcome: { id: 0x1D, name: 'Welcome light' },
+    goodbye: { id: 0x1E, name: 'Goodbye light' },
 };
+// Body controllers at 0x40 and the D542 elements each PRG lists (0x16 means something else in
+// BDC_G05: FOLLOW_ME_HOME, so 'grille' only for BDC_G11). E3B5 outputs only in BDC_G05.
+const COMMON_FN = ['position', 'low', 'drl', 'high', 'indLeft', 'indRight', 'fog', 'cornerLeft', 'cornerRight',
+    'brake', 'rearFog', 'reverse', 'parkLeft', 'parkRight', 'hazard'];
+const BODY_VARIANTS = Object.freeze({
+    '0F2680': Object.freeze({ name: 'BDC_G05', support: 'verified', outputs: true, functions: COMMON_FN.concat(['locator', 'maneuver', 'welcome', 'goodbye']) }),
+    '0F2050': Object.freeze({ name: 'BDC_G11', support: 'prg', outputs: false, functions: COMMON_FN.concat(['locator', 'grille']) }),
+    '0F19C0': Object.freeze({ name: 'BDC', support: 'prg', outputs: false, functions: COMMON_FN.slice() }),
+});
+function bodyVariant(index) { return Object.prototype.hasOwnProperty.call(BODY_VARIANTS, index) ? BODY_VARIANTS[index] : null; }
+
 const PAIRS = {
     high: { name: 'High beam', left: 0x07, right: 0x08 },
     drl: { name: 'Daytime running lights', left: 0x03, right: 0x04 },
@@ -92,5 +122,5 @@ function indexOf(data) {
 }
 function hex(data) { return data.map((v) => ('0' + v.toString(16)).slice(-2)).join(' ').toUpperCase(); }
 
-module.exports = { ADDRESS, INDEX, DID, FUNCTION_DID, FUNCTIONS, PAIRS, PATTERNS, BOTH_PATTERNS,
+module.exports = { ADDRESS, INDEX, DID, FUNCTION_DID, FUNCTIONS, BODY_VARIANTS, bodyVariant, PAIRS, PATTERNS, BOTH_PATTERNS,
     pattern, settings, timedControl, statusSummary, singleOutputSummary, control, release, indexOf, hex };

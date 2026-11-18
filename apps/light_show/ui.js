@@ -186,11 +186,12 @@ function makeUi(G, colors) {
             button(cv, t, px + 2 * (bw + 12), TOP + 350, bw, 46, 'Rename', a.rename, 'RENAME', { size: 16 });
         }
         const pages = Math.max(1, Math.ceil(list.length / LIGHTS_PER_PAGE));
-        footer(cv, t, !m.allowed ? m.lockText : m.notice || ('Page ' + (m.lightsPage + 1) + ' of ' + pages + '. Tests: P, standing still, nobody in front of the car.'),
+        footer(cv, t, !m.allowed ? m.lockText : m.notice || ('Page ' + (m.lightsPage + 1) + ' of ' + pages + ', ' + list.length + ' lights. Test: P, standstill, nobody in front.'),
             !m.allowed ? t.crit : null, [
-                { text: m.showAll ? 'Usable only' : 'Show all', w: 190, key: 'ALL', run: a.toggleAll },
-                { text: 'Previous', w: 160, key: 'PREV', run: a.prevLights, off: m.lightsPage === 0 },
-                { text: 'Next', w: 160, key: 'NEXT', run: a.nextLights, off: m.lightsPage >= pages - 1 },
+                { text: m.groupFilter ? m.groupFilter + ' lights' : 'All lights', w: 190, key: 'GROUP', run: a.nextGroup, on: !!m.groupFilter },
+                { text: m.showAll ? 'Usable only' : 'Show all', w: 180, key: 'ALL', run: a.toggleAll },
+                { text: 'Previous', w: 150, key: 'PREV', run: a.prevLights, off: m.lightsPage === 0 },
+                { text: 'Next', w: 130, key: 'NEXT', run: a.nextLights, off: m.lightsPage >= pages - 1 },
                 { text: 'Stop', w: 150, key: 'STOP_L', run: a.stop, color: t.crit, off: !m.runner.busy && !m.runner.recoveryPending },
             ]);
     }
@@ -208,10 +209,12 @@ function makeUi(G, colors) {
             const hints = p.order && p.order.hints.length ? p.order.hints.join(', ') : p.order ? p.order.codes.length + ' option codes read' : (p.orderError || 'vehicle order not read');
             const rows = [
                 ['Gateway (0x10)', gw ? (gw.name || gw.index || '-') : '-', gw ? 'gateway' : 'absent', 'Vehicle order: ' + hints],
-                ['Body controller (0x40)', p.bdc.name || p.bdc.index || '-', p.bdc.support, 'Tail, brake, indicators, fog, reverse, plate; light functions'],
+                ['Body controller (0x40)', p.bdc.name || p.bdc.index || '-', p.bdc.support, (p.bdc.functions || []).length + ' light functions' + (p.bdc.outputs ? ' + single outputs (experimental)' : '')],
                 ['Headlamp left (0x43)', p.flm.left.name || p.flm.left.index || '-', p.routes.flm.left, 'LED channels of the left headlamp'],
                 ['Headlamp right (0x44)', p.flm.right.name || p.flm.right.index || '-', p.routes.flm.right, 'LED channels of the right headlamp'],
-                ['Rear light modules', rear.length ? rear.map((u) => u.name).join(', ') : 'none', rear.length ? 'detected' : 'absent', rear.length ? 'Recognised; control telegrams not mapped yet' : 'Rear lights run through the body controller'],
+                ['Rear light modules', rear.length ? rear.map((u) => u.name).join(', ') : 'none',
+                    !rear.length ? 'absent' : (p.rlm || []).some((r) => r.support === 'prg') ? 'prg' : 'unsupported',
+                    rear.length ? 'Tail light functions (RLM2) or LED channels (RLM_1)' : 'Rear lights run through the body controller'],
             ];
             rows.forEach((r, i) => {
                 const y = TOP + 74 + i * 60;
@@ -219,7 +222,7 @@ function makeUi(G, colors) {
                 label(cv, r[0], EDGE + 36, y + 23, 17, t.text, 280, { font: 'bold' });
                 label(cv, r[1], EDGE + 320, y + 23, 17, t.text, 250);
                 label(cv, r[3], EDGE + 36, y + 44, 13.5, t.dim, lw - 90);
-                const c = r[2] === 'verified' || r[2] === 'gateway' ? (t.ok || t.accent) : r[2] === 'experimental' || r[2] === 'detected' ? t.warn : t.crit;
+                const c = r[2] === 'verified' || r[2] === 'gateway' ? (t.ok || t.accent) : r[2] === 'prg' || r[2] === 'experimental' || r[2] === 'detected' ? t.warn : t.crit;
                 const txt = m.supportText(r[2]);
                 const cw = cv.textWidth(ascii(txt).toUpperCase(), 12, { font: 'bold', spacing: 1, literal: true }) + 18;
                 chip(cv, EDGE + lw - 36 - cw, y + 8, txt, c, 12);
@@ -235,8 +238,8 @@ function makeUi(G, colors) {
             label(cv, (u.name || u.index || 'no identity') + (u.role ? '  ' + u.role : ''), x + 56, y, 15, t.text, cw - 60);
         });
         if (!units.length) paragraph(cv, 'The list appears after the scan.', rx + 24, TOP + 74, 17, t.dim, rw - 48, 2);
-        button(cv, t, rx + 20, TOP + 286, rw - 40, 48, (m.allowExperimental ? 'On' : 'Off') + ': experimental headlamp modules', a.toggleExperimental, 'EXP',
-            { on: m.allowExperimental, size: 16, color: m.allowExperimental ? t.warn : null });
+        paragraph(cv, 'SUPPORTED = tested in a car (G21). FROM BMW DATA = telegram taken from the BMW PRG, not yet tested in a car: test each light once while you watch.',
+            rx + 24, TOP + 300, 14, t.dim, rw - 48, 3);
         const pages = Math.max(1, Math.ceil(units.length / per));
         footer(cv, t, m.notice || (m.recoveryUnreadable ? 'Recovery file unreadable: check every normal light with the car\'s own switches, then confirm.' : 'Only identities are read. The result decides which lights the app offers.'),
             m.recoveryUnreadable ? t.crit : null, [

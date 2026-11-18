@@ -10,6 +10,7 @@
 // Acknowledgements are protocol answers, not light measurements.
 const F = require('./flm-control');
 const P = require('./protocol');
+const R = require('./rlm-control');
 
 const KEEPALIVE_MS = 2000;
 
@@ -87,6 +88,7 @@ class Runner {
             if (l.route === 'flm') { F.moduleFor(l.side); F.channelNumber(l.channel); }
             else if (l.route === 'fn') P.timedControl(l.key, 0);
             else if (l.route === 'out') P.control(l.output, 0);
+            else if (l.route === 'rlm') { R.module(l.address); R.telegram(l.kind, l.item, 0, 60); }
             else throw new Error('Unknown route');
             return l;
         });
@@ -102,6 +104,10 @@ class Runner {
             flmSides: Array.from(new Set(lamps.filter((l) => l.route === 'flm').map((l) => l.side))),
             fns: Array.from(new Set(lamps.filter((l) => l.route === 'fn').map((l) => l.key))),
             outputs: Array.from(new Set(lamps.filter((l) => l.route === 'out').map((l) => l.output))),
+            rlm: Array.from(new Set(lamps.filter((l) => l.route === 'rlm').map((l) => l.address))).map((address) => {
+                const ls = lamps.filter((l) => l.route === 'rlm' && l.address === address);
+                return { address, kind: ls[0].kind, items: Array.from(new Set(ls.map((l) => l.item))) };
+            }),
         };
     }
 
@@ -116,13 +122,20 @@ class Runner {
                 await this.link.identifyFlm(side);
                 if (!this.allowed()) return this._finish(false, null);
             }
+            for (const r of touched.rlm) {
+                const v = await this.link.identifyRlm(r.address);
+                if (v.kind !== r.kind) throw new Error(v.name + ' does not offer this kind of light');
+                if (!this.allowed()) return this._finish(false, null);
+            }
             this.journal.mark(this.link.index, touched); dirty = true;
             if (touched.bdcSession) await this.link.session();
             for (const side of touched.flmSides) await this.link.flmSession(side);
+            for (const r of touched.rlm) await this.link.rlmSession(r.address);
             const last = {};
             const touch = (k) => { last[k] = this.now(); };
             if (touched.bdcSession) touch('bdc');
             touched.flmSides.forEach(touch);
+            touched.rlm.forEach((r) => touch('rlm' + r.address));
             const cycles = plan.cycles || 1, total = plan.steps.length * cycles;
             this.progress = { step: 0, steps: total, cycle: 1, cycles, startedAt: this.now(), estimateMs: plan.estimateMs || null };
             this.update('RUNNING', plan.name || 'Show');
@@ -141,13 +154,13 @@ class Runner {
                             started.push(l);            // record before sending: the ECU may act even if the reply is lost
                             await this._on(l, step.ms, plan.pwm);
                             this.sent++; this.active.add(l.id); this.changed();
-                            touch(l.route === 'flm' ? l.side : 'bdc');
+                            touch(this.unitKey(l));
                         }
                         if (started.length) await this.wait(Math.max(0, step.ms - (this.now() - begin)));
                         else await this.wait(step.ms);
                     } catch (e) { failure = e; }
                     for (const l of started) {
-                        try { await this._off(l); touch(l.route === 'flm' ? l.side : 'bdc'); }
+                        try { await this._off(l); touch(this.unitKey(l)); }
                         catch (e) { failure = failure || e; }
                         this.active.delete(l.id);
                     }
@@ -155,7 +168,9 @@ class Runner {
                     if (failure) throw failure;
                     for (const k of Object.keys(last)) {
                         if (this.now() - last[k] < KEEPALIVE_MS || !this.allowed()) continue;
-                        if (k === 'bdc') await this.link.keepalive(); else await this.link.flmKeepalive(k);
+                        if (k === 'bdc') await this.link.keepalive();
+                        else if (k.indexOf('rlm') === 0) await this.link.rlmKeepalive(Number(k.slice(3)));
+                        else await this.link.flmKeepalive(k);
                         touch(k);
                     }
                     if (plan.gapMs) await this.wait(plan.gapMs);
@@ -177,12 +192,15 @@ class Runner {
         this.progress = null; this.changed();
         return { ok, error: fault || this.stopReason || null };
     }
+    unitKey(l) { return l.route === 'flm' ? l.side : l.route === 'rlm' ? 'rlm' + l.address : 'bdc'; }
     async _on(l, ms, pwm) {
+        if (l.route === 'rlm') return this.link.rlmSet(l.address, l.kind, l.item, ms, pwm);
         if (l.route === 'flm') return this.link.flmStart(l.side, l.channel, pwm, Math.min(3, Math.max(1, Math.ceil(ms / 1000))));
         if (l.route === 'fn') return this.link.timed(l.key, Math.min(2000, Math.max(100, Math.round(ms / 10) * 10)));
         return this.link.set(l.output, 1);
     }
     async _off(l) {
+        if (l.route === 'rlm') return this.link.rlmSet(l.address, l.kind, l.item, 0, 60);
         if (l.route === 'flm') return this.link.flmStop(l.side);
         if (l.route === 'fn') return this.link.timed(l.key, 0);
         return this.link.set(l.output, 0);
@@ -202,6 +220,15 @@ class Runner {
         for (const id of control.outputs) {
             try { await this.link.set(id, 0); done.out[id] = true; }
             catch (e) { done.out[id] = false; errors.push('output 0x' + id.toString(16) + ' off: ' + (e.message || e)); }
+        }
+        done.rlm = {};
+        for (const r of control.rlm || []) {
+            for (const item of r.items) {
+                try { await this.link.rlmSet(r.address, r.kind, item, 0, 60); }
+                catch (e) { errors.push('rear light 0x' + r.address.toString(16) + ' off: ' + (e.message || e)); }
+            }
+            try { await this.link.rlmDefaultSession(r.address); done.rlm[r.address] = true; }
+            catch (e) { done.rlm[r.address] = false; errors.push('rear light 0x' + r.address.toString(16) + ' default session: ' + (e.message || e)); }
         }
         for (const side of control.flmSides) {
             try { await this.link.flmDefaultSession(side); done.flmDefault[side] = true; }
@@ -234,6 +261,7 @@ class Runner {
         try {
             await this.link.identify();
             for (const side of control.flmSides) await this.link.identifyFlm(side);
+            for (const r of control.rlm || []) await this.link.identifyRlm(r.address);
         } catch (e) { this.update('ERROR', 'Release pending: ' + (e.message || e)); return; }
         if (await this._release(control)) this.update('IDLE', 'Previous run released');
     }

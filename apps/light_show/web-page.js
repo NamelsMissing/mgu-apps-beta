@@ -104,16 +104,14 @@ function renderCar(){
  if(!p)h='<div class="note">No scan yet. The scan only reads the identity of every control unit.</div>';
  else{h+='<div class="note">'+esc(p.summary)+' - '+new Date(p.at).toLocaleString()+'</div>';
   if(p.order)h+='<div class="note">Vehicle order: '+esc(p.order.hints.length?p.order.hints.join(', '):p.order.codes.length+' option codes')+'</div>';
-  if(p.rear&&p.rear.length)h+='<div class="note warn">Rear light modules found ('+esc(p.rear.join(', '))+'): recognised, not controllable yet.</div>';
   h+=p.units.filter(function(u){return u.light}).map(function(u){return '<div class="unit"><code>'+u.addressHex+'</code><div><b>'+esc(u.name||'Unknown '+(u.index||''))+'</b><br><span class="note">'+esc(u.light)+'</span></div><span class="s">'+esc(u.supportText||'')+'</span></div>'}).join('');
   h+='<h2>All control units</h2>'+p.units.map(function(u){return '<div class="unit"><code>'+u.addressHex+'</code><span>'+esc(u.name||u.index||'no identity')+'</span><span class="s note">'+esc(u.role||'')+'</span></div>'}).join('');}
- $('#units').innerHTML=h;$('#exp').checked=!!S.allowExperimental;
+ $('#units').innerHTML=h;
  $('#rec').innerHTML=S.runner.recoveryPending?'<div class="note warn">A previous run is not released yet. Press STOP.</div>':'';
 }
 document.querySelectorAll('nav button').forEach(function(b){b.onclick=function(){tab=b.dataset.t;document.querySelectorAll('nav button').forEach(function(x){x.classList.toggle('on',x===b)});document.querySelectorAll('section').forEach(function(s){s.classList.toggle('on',s.id===tab)});render()}});
 $('#go').onclick=function(){act('/api/show',S.config)};$('#stop').onclick=function(){act('/api/stop',{})};
 $('#scan').onclick=function(){toast('Scanning - this takes a few seconds');act('/api/scan',{})};
-$('#exp').onchange=function(){act('/api/experimental',{on:$('#exp').checked})};
 $('#all').onchange=function(){showAll=$('#all').checked;render()};
 var cv=$('#car'),cx=cv.getContext('2d');
 function frame(){var w=cv.clientWidth,h=cv.clientHeight,dp=window.devicePixelRatio||1;if(cv.width!==w*dp){cv.width=w*dp;cv.height=h*dp}
@@ -142,7 +140,7 @@ module.exports = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <div class="note">Only in P, standing still, on private ground. Don't look into the headlights. Lights take part in a show only after you tested them and they lit up without noise.</div></section>
 <section id="lights"><label class="sw"><input type="checkbox" id="all"> Show unavailable lights too</label><div id="lamps"></div></section>
 <section id="car"><button id="scan" class="primary" style="width:100%">Scan control units</button><div id="rec"></div>
-<label class="sw"><input type="checkbox" id="exp"> Allow experimental headlamp modules (FLM02X, FLM2_1, e.g. adaptive LED / laser)</label>
+<div class="note">Supported = tested in a car. From BMW data = telegram from the BMW PRG, not yet tested in a car: test each light once while you watch.</div>
 <div id="units"></div></section>
 <div id="toast"></div>
 <script>${car3d}</script><script>${SCRIPT}</script></body></html>`;

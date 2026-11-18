@@ -8,6 +8,7 @@ const P = require('./protocol');
 const F = require('./flm-control');
 const { INDEX, ECU } = require('./sgbd-index');
 const VehicleOrder = require('./vehicle-order');
+const R = require('./rlm-control');
 
 const FILE = 'light-show-vehicle.json';
 const hex2 = (n) => ('0' + n.toString(16)).slice(-2).toUpperCase();
@@ -44,10 +45,13 @@ function profile(ids, method, now) {
     units.sort((a, b) => a.address - b.address);
     const at = (a) => units.find((u) => u.address === a) || null;
     const bdcUnit = at(0x40);
+    const bv = bdcUnit && P.bodyVariant(bdcUnit.index);
     const bdc = {
         present: !!bdcUnit, index: bdcUnit && bdcUnit.index, name: bdcUnit && bdcUnit.name,
-        support: bdcUnit && bdcUnit.index === P.INDEX ? 'verified' : bdcUnit ? 'unsupported' : 'absent',
+        support: bv ? bv.support : bdcUnit ? 'unsupported' : 'absent',
+        functions: bv ? bv.functions.slice() : [], outputs: !!(bv && bv.outputs),
     };
+    const bodyOk = !!bv;
     const flm = {};
     for (const side of ['left', 'right']) {
         const u = at(F.MODULES[side].address);
@@ -55,21 +59,29 @@ function profile(ids, method, now) {
         flm[side] = { present: !!u, address: F.MODULES[side].address, index: u && u.index,
             name: v ? v.name : u && u.name, support: !u ? 'absent' : v ? v.support : 'unsupported' };
     }
-    const flmRoute = (s) => s === 'absent' || s === 'unsupported' || bdc.support === 'verified' ? s : 'blocked';
+    const flmRoute = (s) => s === 'absent' || s === 'unsupported' || bodyOk ? s : 'blocked';
+    const rlm = Object.keys(R.MODULES).map(Number).map((address) => {
+        const u = at(address), v = u && u.index ? R.variant(address, u.index) : null;
+        return { address, slot: R.MODULES[address].slot, side: R.MODULES[address].side, index: u && u.index,
+            name: v ? v.name : u && u.name, kind: v ? v.kind : null,
+            support: !u ? 'absent' : !v ? 'unsupported' : bodyOk ? 'prg' : 'blocked' };
+    }).filter((r) => r.support !== 'absent');
     const routes = {
         // FLM_KANAL also needs the BDC as the app's gateway check before any session.
         flm: { left: flmRoute(flm.left.support), right: flmRoute(flm.right.support) },
-        fn: bdc.support === 'verified' ? 'verified' : 'unsupported',
-        out: bdc.support === 'verified' ? 'experimental' : 'unsupported',
+        fn: bodyOk ? bv.support : 'unsupported',
+        out: bodyOk && bv.outputs ? 'experimental' : 'unsupported',
+        rlm: rlm.map((r) => ({ address: r.address, support: r.support, kind: r.kind })),
     };
     const lightUnits = units.filter((u) => u.light);
     lightUnits.forEach((u) => {
         u.support = u.address === 0x40 ? bdc.support : u.address === 0x43 ? routes.flm.left : u.address === 0x44 ? routes.flm.right
-            : u.address === 0x10 ? 'gateway' : DETECT_ONLY.indexOf(u.address) >= 0 && u.name ? 'detected' : 'unsupported';
+            : u.address === 0x10 ? 'gateway' : R.MODULES[u.address] ? (rlm.find((r) => r.address === u.address) || {}).support || 'unsupported'
+            : DETECT_ONLY.indexOf(u.address) >= 0 && u.name ? 'detected' : 'unsupported';
         u.supportText = supportText(u.support);
     });
     const rear = units.filter((u) => [0x17, 0x1A, 0x1C, 0x1E].indexOf(u.address) >= 0 && u.name);
-    return { at: new Date(now || Date.now()).toISOString(), method, units, bdc, flm, routes, rear: rear.map((u) => u.name),
+    return { at: new Date(now || Date.now()).toISOString(), method, units, bdc, flm, rlm, routes, rear: rear.map((u) => u.name),
         summary: units.length + ' control units, ' + lightUnits.filter((u) => u.address !== 0x10).length + ' with exterior lighting' };
 }
 
@@ -116,7 +128,7 @@ function save(dir, value) {
 /** Short human text for a support level. */
 function supportText(s) {
     return { verified: 'Supported', experimental: 'Experimental', unsupported: 'Not supported',
-        absent: 'Not found', blocked: 'Needs BDC_G05', detected: 'Found, not mapped yet', gateway: 'Gateway' }[s] || 'Unknown';
+        absent: 'Not found', blocked: 'Needs a supported BDC', prg: 'From BMW data', detected: 'Found, not mapped yet', gateway: 'Gateway' }[s] || 'Unknown';
 }
 
 module.exports = { scan, profile, load, save, supportText, unitName, LIGHT_ROLES, DETECT_ONLY, FILE };

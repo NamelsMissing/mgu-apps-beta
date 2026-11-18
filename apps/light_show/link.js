@@ -2,6 +2,7 @@
 const { Diag, replyTo, NRC } = require('./tasu');
 const P = require('./protocol');
 const F = require('./flm-control');
+const R = require('./rlm-control');
 
 // Addresses the vehicle scan may ask for their identity (BimmerLight's light-module set for
 // G-series: gateway, rear light modules, body, headlamps, older footwell/rear modules).
@@ -14,7 +15,7 @@ class Link {
         this.log = log; this.changed = changed || (() => {});
         this.available = false; this.index = null; this.identifiedAt = 0;
         this.trace = []; this._busy = false;
-        this.verifiedFlm = {};
+        this.verifiedFlm = {}; this.verifiedRlm = {}; this.body = null;
     }
     async init() {
         await this.diag.init(); this.available = this.diag.available;
@@ -26,14 +27,18 @@ class Link {
     async request(sid, data, release, address) {
         address = address === undefined ? P.ADDRESS : address;
         const identityOnly = sid === 0x22 && (P.hex(data) === 'F1 50' || (address === 0x10 && P.hex(data) === '3F 06'));
-        if (address !== P.ADDRESS && SCAN_ADDRESSES.indexOf(address) >= 0 && [0x43, 0x44].indexOf(address) < 0) {
+        const session = (sid === 0x10 && (P.hex(data) === '03' || P.hex(data) === '01'))
+            || (sid === 0x3E && P.hex(data) === '00');
+        if (Object.prototype.hasOwnProperty.call(R.MODULES, address)) {
+            // rear light modules: identity always; session and the light telegrams only once identified
+            const control = this.verifiedRlm[address] && (session || (sid === 0x2E && R.permitted(data)));
+            if (!identityOnly && !control) throw new Error('Rear light module 0x' + address.toString(16) + ': request not allowed / module not identified');
+        } else if (address !== P.ADDRESS && SCAN_ADDRESSES.indexOf(address) >= 0 && [0x43, 0x44].indexOf(address) < 0) {
             // other light-related units: identity and vehicle order only, never control
             if (!identityOnly) throw new Error('Only identity reads are allowed at 0x' + address.toString(16));
         } else if (address !== P.ADDRESS) {
             const validAddress = [0x43, 0x44].indexOf(address) >= 0;
             const readOnly = sid === 0x22 && ['F1 50', 'D9 FC'].indexOf(P.hex(data)) >= 0;
-            const session = (sid === 0x10 && (P.hex(data) === '03' || P.hex(data) === '01'))
-                || (sid === 0x3E && P.hex(data) === '00');
             const routine = sid === 0x31 && F.isPermittedRoutine(data);
             if (!validAddress || (!readOnly && !this.verifiedFlm[address]) || (!readOnly && !session && !routine))
                 throw new Error('Unsupported FLM diagnostic request / module not identified');
@@ -62,7 +67,9 @@ class Link {
         this.index = null;
         const u = await this.request(0x22, [0xF1, 0x50]);
         this.index = P.indexOf(u.slice(3, 6)); this.identifiedAt = Date.now();
-        if (this.index !== P.INDEX) throw new Error('BDC variant ' + (this.index || 'unknown') + ' is not supported (requires BDC_G05)');
+        const v = P.bodyVariant(this.index);
+        this.body = v ? Object.assign({ index: this.index }, v) : null;
+        if (!v) throw new Error('Body controller ' + (this.index || 'unknown') + ' is not supported (BDC_G05, BDC_G11 or BDC)');
         return this.index;
     }
     async identifyFlm(side) {
@@ -76,6 +83,24 @@ class Link {
                 (v && v.support === 'experimental' ? ' is experimental - enable it in Vehicle first' : ' unsupported'));
         this.verifiedFlm[m.address] = index;
         return index;
+    }
+    async identifyRlm(address) {
+        R.module(address);
+        delete this.verifiedRlm[address];
+        const u = await this.request(0x22, [0xF1, 0x50], false, address);
+        const index = P.indexOf(u.slice(3, 6)), v = index && R.variant(address, index);
+        if (!v) throw new Error('Rear light module 0x' + address.toString(16) + ' variant ' + (index || 'unknown') + ' unsupported');
+        this.verifiedRlm[address] = v;
+        return v;
+    }
+    async rlmSession(address) { return this.request(0x10, [0x03], false, address); }
+    async rlmDefaultSession(address) { return this.request(0x10, [0x01], true, address); }
+    async rlmKeepalive(address) { return this.request(0x3E, [0x00], false, address); }
+    /** kind 'fn' (RLM2 light function) or 'ch' (RLM_1 channel); ms 0 switches off. */
+    async rlmSet(address, kind, item, ms, pwm) {
+        const v = this.verifiedRlm[address];
+        if (!v || v.kind !== kind) throw new Error('Rear light module 0x' + address.toString(16) + ' not identified for this light');
+        return this.request(0x2E, R.telegram(kind, item, ms, pwm), ms === 0, address);
     }
     /**
      * Read-only vehicle scan: one functional 22 F1 50 to all control units. Resolves with
@@ -110,15 +135,22 @@ class Link {
     async flmKeepalive(side) { return this.request(0x3E, [0x00], false, F.moduleFor(side).address); }
     async flmSession(side) { return this.request(0x10, [0x03], false, F.moduleFor(side).address); }
     async flmStart(side, channel, pwm = F.DEFAULT_PWM, seconds = F.DEFAULT_SECONDS) {
+        const m = F.moduleFor(side), v = F.variant(side, this.verifiedFlm[m.address]);
+        if (v && channel > v.channels) throw new Error(v.name + ' has channels 1-' + v.channels);
         return this.request(0x31, F.start(channel, pwm, seconds), false, F.moduleFor(side).address);
     }
     async flmStop(side) { return this.request(0x31, F.stop(), true, F.moduleFor(side).address); }
     async flmDefaultSession(side) { return this.request(0x10, [0x01], true, F.moduleFor(side).address); }
     async readOutputs() { return this.request(0x22, [0xE3, 0xB9]); }
     async readFunctionStatus() { return this.request(0x22, P.FUNCTION_DID); }
-    async timed(lights, ms) { return this.request(0x2E, P.timedControl(lights, ms), ms === 0); }
+    async timed(lights, ms) {
+        if (this.body && this.body.functions.indexOf(lights) < 0) throw new Error(this.body.name + ' has no light function ' + lights);
+        return this.request(0x2E, P.timedControl(lights, ms), ms === 0); }
     async session() { return this.request(0x10, [0x03]); }
-    async set(output, on) { return this.request(0x2F, P.control(output, on)); }
+    async set(output, on) {
+        if (!this.body || !this.body.outputs) throw new Error('Single BDC outputs need BDC_G05');
+        return this.request(0x2F, P.control(output, on));
+    }
     async keepalive() { return this.request(0x3E, [0x00]); }
     async release() { return this.request(0x2F, P.release(), true); }
     async defaultSession() { return this.request(0x10, [0x01], true); }
