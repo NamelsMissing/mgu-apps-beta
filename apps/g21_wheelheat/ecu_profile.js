@@ -26,7 +26,7 @@ const DID = { wheel: 0xD074, driver: 0xE432, passenger: 0xE430, seatCoded: 0xE43
 const MODULE_DID = { seat: 0xD714, coded: 0xD701 };
 const IHKA_DID = { status: 0xD8DB };
 
-// SGBD names for the identities this app reads (from apps/light_show/sgbd-index.js).
+// SGBD names for the identities this app reads (from Light Show sgbd-index.js in NamelsMissing/mgu-apps).
 // Seat-module and IHKA layouts are decoded ONLY for the variants listed in
 // DECODES; other variants are shown raw.
 const SGBD = {
