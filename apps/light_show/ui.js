@@ -163,7 +163,7 @@ function makeUi(G, colors) {
             const sw = cv.textWidth(ascii(st).toUpperCase(), 12, { font: 'bold', spacing: 1, literal: true }) + 18;
             chip(cv, x + colW - (n >= 0 ? 56 : 14) - sw, y + 18, st, statusColor(t, l.status), 12);
         });
-        if (!list.length) paragraph(cv, m.profile ? 'No light is available on this car with the current settings. See VEHICLE.' : 'Scan the vehicle first (VEHICLE page): Light Show then knows which control units and lights this car has.', EDGE + 10, TOP + 40, 20, t.dim, listW - 20, 4);
+        if (!list.length) paragraph(cv, m.profile ? 'No light is available on this car with the current settings. See VEHICLE.' : 'The car is scanned by itself once it is parked in P (read-only, a few seconds). Then Light Show knows which control units and lights this car has.', EDGE + 10, TOP + 40, 20, t.dim, listW - 20, 4);
         // detail panel with a small 3D car
         const px = W - EDGE - panelW, l = list.find((x) => x.id === m.selectedLamp);
         car(cv, t, { x: px, y: TOP, w: panelW, h: 196 }, m, l ? [{ points: l.points, hex: l.hex, on: true }] : [], { pitch: -0.42 });

@@ -215,10 +215,24 @@ mgu.run({
         }
 
         guard.init(ctx.signals, log).catch((e) => log.warn('Light Show vehicle signals: ' + e));
-        link.init().then(() => { if (journal.pending()) return runner.stop('Releasing a run from before the restart'); })
+        let linkReady = false;
+        link.init().then(() => { linkReady = true; if (journal.pending()) return runner.stop('Releasing a run from before the restart'); })
             .catch((e) => log.warn('Light Show diagnostic init: ' + e));
 
-        setInterval(() => server.poll(), 1000);
+        // First start: scan the car by itself once it is parked (read-only identities and
+        // vehicle order). Later scans only when the user asks for them.
+        const auto = { tries: 0, lastTryAt: 0 };
+        function autoScan() {
+            const st = runner.status();
+            if (!Scan.autoScanDue({ hasProfile: !!profile, guardOk: !guard.reason(), linkReady: linkReady && link.available,
+                busy: st.busy, recoveryPending: st.recoveryPending, tries: auto.tries, lastTryAt: auto.lastTryAt, now: Date.now() })) return;
+            auto.tries++; auto.lastTryAt = Date.now();
+            say('First start: scanning the control units (read-only)...');
+            actions.scan().then(() => say('Vehicle scanned: ' + profile.summary + '. Test the lights under LIGHTS.'),
+                (e) => say('Automatic scan failed (' + (e.message || e) + ')' + (auto.tries < Scan.AUTO_TRIES ? ', trying again in a minute.' : '. Use Scan vehicle on VEHICLE.')));
+        }
+
+        setInterval(() => { server.poll(); autoScan(); }, 1000);
         let lastFrame = 0, lastDraw = 0;
         ctx.loop('MAIN', 15, () => {
             const now = Date.now();

@@ -37,6 +37,13 @@ const ids = (pairs) => new Map(pairs);
     assert.strictEqual(other.routes.flm.left, 'blocked', 'no FLM route without BDC_G05');
     assert.strictEqual(other.routes.flm.right, 'absent');
     assert.strictEqual(other.routes.fn, 'unsupported');
+    const due = (o) => Scan.autoScanDue(Object.assign({ hasProfile: false, guardOk: true, linkReady: true, busy: false,
+        recoveryPending: false, tries: 0, lastTryAt: 0, now: 100000 }, o));
+    assert.ok(due({}), 'first start, parked: scan');
+    assert.ok(!due({ hasProfile: true }), 'saved result: no automatic scan');
+    assert.ok(!due({ guardOk: false }) && !due({ linkReady: false }) && !due({ busy: true }) && !due({ recoveryPending: true }));
+    assert.ok(!due({ tries: 1, lastTryAt: 90000 }) && due({ tries: 1, lastTryAt: 30000 }), '60 s between tries');
+    assert.ok(!due({ tries: 3, lastTryAt: 1 }), 'at most 3 tries');
     console.log('ok: scan profiles (G21 verified, FLM02X and BDC_G11 from PRG, unknown BDC blocked)');
 }
 

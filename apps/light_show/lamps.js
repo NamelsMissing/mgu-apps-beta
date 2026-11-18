@@ -97,7 +97,7 @@ function parse(id) {
 function catalog(profile, names, options) {
     const o = options || {}, routes = profile && profile.routes;
     const out = [];
-    const why = (support) => !routes ? 'Run the vehicle scan first'
+    const why = (support) => !routes ? 'Vehicle not scanned yet: happens by itself once parked in P'
         : support === 'verified' || support === 'prg' ? '' : support === 'experimental' ? (o.allowExperimental ? '' : 'Experimental module: enable in Vehicle')
         : support === 'blocked' ? 'No supported body controller found' : support === 'absent' ? 'Module not found in this car'
         : 'Module variant not supported';

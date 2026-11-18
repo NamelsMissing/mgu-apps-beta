@@ -113,6 +113,19 @@ async function scan(link, log, progress) {
     return result;
 }
 
+/**
+ * First-start scan: run by itself when there is no saved result yet, the car is parked
+ * (guard clear), the diagnostic link is up, nothing else runs and no release is pending.
+ * At most 3 tries per app run, 60 s apart. state: {hasProfile, guardOk, linkReady, busy,
+ * recoveryPending, tries, lastTryAt, now}
+ */
+const AUTO_TRIES = 3, AUTO_GAP_MS = 60000;
+function autoScanDue(st) {
+    if (st.hasProfile || !st.guardOk || !st.linkReady || st.busy || st.recoveryPending) return false;
+    if (st.tries >= AUTO_TRIES) return false;
+    return !st.lastTryAt || st.now - st.lastTryAt >= AUTO_GAP_MS;
+}
+
 function load(dir) {
     try {
         const v = JSON.parse(fs.readFileSync(path.join(dir, FILE), 'utf8'));
@@ -131,4 +144,4 @@ function supportText(s) {
         absent: 'Not found', blocked: 'Needs a supported BDC', prg: 'From BMW data', detected: 'Found, not mapped yet', gateway: 'Gateway' }[s] || 'Unknown';
 }
 
-module.exports = { scan, profile, load, save, supportText, unitName, LIGHT_ROLES, DETECT_ONLY, FILE };
+module.exports = { autoScanDue, AUTO_TRIES, scan, profile, load, save, supportText, unitName, LIGHT_ROLES, DETECT_ONLY, FILE };

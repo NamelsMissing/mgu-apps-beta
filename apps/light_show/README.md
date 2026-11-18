@@ -1,4 +1,4 @@
-# Light Show 0.4.4 (beta)
+# Light Show 0.4.5 (beta)
 
 Exterior light shows for BMW G-series cars with the iDrive 7 head unit (MGU), in the spirit of
 Bimmerlight: pick lights, pick an effect, start, from the BMW screen or from your phone.
@@ -30,6 +30,11 @@ Names and test results from 0.3.x are taken over (same app id, same data folder)
 - **Phone** - QR code, status of the firewall helper, the server and the phone connection.
 
 ## Vehicle scan (modelled on BimmerLight)
+
+The scan runs **by itself on the first start** as soon as the car is parked in P and standing
+still (and no show or release is pending): up to 3 tries per app run, a minute apart. The
+result is saved; after that the app scans again only when you press *Scan again* on *Vehicle*
+(e.g. after a control unit was replaced).
 
 1. One functional `22 F1 50` to all control units.
 2. Every light address that did not answer is asked once more on its own: gateway 0x10,
