@@ -181,7 +181,7 @@ mgu.run({
                         speedFresh: ctl.motionKnown, bdcMessage: ctl.info,
                         lastBdcWriteAt: ctl.lastWriteAt, bdcReadbacks: ctl.readbacks,
                         oneShotTestArmed: cycle.testBypass,
-                        ecuProfileState: ecuState, ecuProfile,
+                        ecuProfileState: ecuState, ecuProfile, seatModuleReads: moduleReads,
                     },
                 });
                 qrPage = 0;
@@ -212,6 +212,7 @@ mgu.run({
         let ecuState = ecuProfile ? 'STORED (not yet verified)' : 'NOT DETECTED';
         let ecuBusy = false, ecuDone = false, ecuAttemptAt = 0, ecuForce = false;
         let lastSkipNote = '';
+        const moduleReads = {}; // read-only seat-module state, key -> E.readModuleSeat()
         record('ECU PROFILE', ecuProfile ? 'loaded: ' + E.summary(ecuProfile) : 'none stored');
         ctx.settings.onChange((key, value) => {
             // The one-shot test must also work when the app is already running
@@ -509,6 +510,20 @@ mgu.run({
                             reply.ok ? reply.raw : reply.error);
                     }
                 }
+                // Seats handled by a seat module: read the module (and IHKA)
+                // instead of the BDC path. Read-only, never a write gate.
+                for (const key of ['driver', 'passenger']) {
+                    if (!ctl.online || !ecuProfile) break;
+                    const r = ecuProfile.routes[key];
+                    if (!r || r.route !== 'seat-module') continue;
+                    const m = await E.readModuleSeat((addr, did) => ctl.probe(addr, did), ecuProfile, key);
+                    if (!m) continue;
+                    moduleReads[key] = m;
+                    record('READ ' + m.module + ' 0xD714', m.state === 'ok' ? m.raw +
+                        (m.decoded ? ' (level ' + m.decoded.level + ')' : ' (layout unknown for ' + (m.sgbd || 'variant') + ')') :
+                        m.state === 'nrc' ? 'NRC 0x' + m.nrc.toString(16).toUpperCase() : 'no reply');
+                    if (m.ihkaLevel !== null) record('READ IHKA 0xD8DB', E.CHANNELS[key].label + ' level ' + m.ihkaLevel);
+                }
                 statusAt = Date.now();
             } finally { statusBusy = false; }
         }
@@ -745,7 +760,7 @@ mgu.run({
                 return r && (r.route === 'seat-module' || r.route === 'unavailable');
             };
             const planText = (key, on, value) => blocked(key) && on ?
-                'Skipped: ' + E.routeLabel(ecuProfile, key).replace(' (not supported yet)', '') : on ? value : 'Off';
+                'Skipped: ' + E.routeLabel(ecuProfile, key).replace(' (automatic control not supported yet)', '') : on ? value : 'Off';
             if (tab === 0) {
                 G.panel(cv, t, 24, 62, 743, 445, 'Automatic heating');
                 text(cv, status, 54, 148, 32, auto.active.size ? t.warn : t.accent, { font: 'bold' });
@@ -787,8 +802,14 @@ mgu.run({
                 text(cv, ecuBusy ? 'DETECTING ...' : 'RE-DETECT ECUs', 1256, 140, 21, t.text);
                 const readRow = (label, did, y, seat, key) => {
                     if (blocked(key)) {
+                        const m = moduleReads[key];
+                        const fresh = m && now - m.at <= 30000;
+                        const level = fresh && m.decoded ? m.decoded.level :
+                            fresh && m.ihkaLevel !== null ? m.ihkaLevel : null;
                         text(cv, label, 54, y, 25, t.text);
-                        text(cv, E.routeLabel(ecuProfile, key), 665, y, 23, t.warn);
+                        text(cv, level !== null ?
+                            (level ? 'ON  |  Level ' + level : 'OFF') + ' (' + m.module + ', read-only)' :
+                            E.routeLabel(ecuProfile, key), 665, y, 23, level ? t.accent : level === 0 ? t.text : t.warn);
                         return;
                     }
                     const entry = ctl.readbacks[did];

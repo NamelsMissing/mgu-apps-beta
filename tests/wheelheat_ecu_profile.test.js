@@ -119,8 +119,8 @@ test('corrupt or foreign stored values are ignored', () => {
 
 test('summary and labels are readable', async () => {
     const p = await E.detect(car(G05).probe, { now: 1 });
-    assert.match(E.summary(p), /^BDC 0F2680 \| SMFA 0A0102 \| SMBF 0A0103 \| IHKA 0F1130/);
-    assert.equal(E.routeLabel(p, 'driver'), 'Seat module SMFA (not supported yet)');
+    assert.match(E.summary(p), /^BDC BDC_G05 \| SMFA 0A0102 \| SMBF 0A0103 \| IHKA 0F1130/);
+    assert.equal(E.routeLabel(p, 'driver'), 'Seat module SMFA (automatic control not supported yet)');
     assert.equal(E.routeLabel(null, 'driver'), 'not detected yet');
 });
 
@@ -138,4 +138,40 @@ test('one-shot parking test can be armed at runtime and applies to one ignition 
     c.observe(5, t0 + 8 * M);
     c.observe(10, t0 + 10 * M);
     assert.equal(c.canStart(), false, 'next short stop is blocked again');
+});
+
+// FAS_G11 / IHKA_G05 layouts from docs/sgbd-seat-heating.md
+const G05_SGBD = Object.assign({}, G05, {
+    '6d:f150': pos(0xF150, 0x0F, 0x21, 0xF0), '6e:f150': pos(0xF150, 0x0F, 0x21, 0xF0),
+    '78:f150': pos(0xF150, 0x0F, 0x28, 0x30),
+    '6d:d701': pos(0xD701, ...new Array(15).fill(0), 2, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    '6e:d701': pos(0xD701, ...new Array(15).fill(0), 2, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    '6d:d714': pos(0xD714, 2, 31, 40, 29, 35, 0, 0, 0),
+    '78:d8db': pos(0xD8DB, ...new Array(19).fill(0), 2, 0, 0, 0, 0, 0, 0, 0),
+});
+
+test('G05 seat modules are named from F150 and decoded read-only', async () => {
+    const c = car(G05_SGBD);
+    const p = await E.detect(c.probe, { now: 1 });
+    assert.equal(p.ecus.SMFA.sgbd, 'FAS_G11');
+    assert.equal(p.ecus.SMBF.sgbd, 'BFS_G11');
+    assert.equal(p.ecus.IHKA.sgbd, 'IHKA_G05');
+    assert.equal(p.ecus.SMFA.seatHeatingCoded, '2-circuit', 'matches E-Sys SHZ_TYP = 2_Kreis');
+    const m = await E.readModuleSeat(c.probe, p, 'driver');
+    assert.deepEqual(m.decoded, { level: 2, cushionC: 31, cushionPwm: 40, backC: 29, backPwm: 35 });
+    assert.equal(m.ihkaLevel, 2);
+    assert.equal(await E.readModuleSeat(c.probe, p, 'wheel'), null, 'BDC channels are not module reads');
+    assert(c.calls.every(([, did]) => did !== undefined));
+    assert.equal(E.decodeModuleSeat([255, 0, 0]), null, '255 = invalid level');
+    assert.equal(E.decodeModuleSeat([1, 0x80, 255])['cushionC'], null);
+});
+
+test('unknown seat-module variant is shown raw, never decoded', async () => {
+    const p = await E.detect(car(G05).probe, { now: 1 });
+    assert.equal(p.ecus.SMFA.sgbd, null);
+    assert.equal(p.ecus.SMFA.seatHeatingCoded, null);
+    const m = await E.readModuleSeat(car(Object.assign({}, G05,
+        { '6d:d714': pos(0xD714, 2, 0, 0, 0, 0) })).probe, p, 'driver');
+    assert.equal(m.decoded, null);
+    assert.equal(m.raw, '02 00 00 00 00');
 });
