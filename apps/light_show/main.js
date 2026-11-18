@@ -40,7 +40,9 @@ mgu.run({
 
         const guard = new Guard(Date.now, changed);
         const link = new Link(ctx.signals, log, changed, { allowExperimental: () => config.allowExperimental });
-        const runner = new Runner({ link, guard, journal, log, changed });
+        const commOff = () => !!(ctx.settings && ctx.settings.get('flmCommOff'));
+        const runner = new Runner({ link, guard, journal, log, changed, commOff });
+        if (ctx.settings && typeof ctx.settings.onChange === 'function') ctx.settings.onChange(changed);
 
         function sanitize(v) {
             const out = {};
@@ -100,7 +102,7 @@ mgu.run({
             observe(id, result) {
                 const cleanup = runner.cleanup;
                 const clean = !!cleanup && !cleanup.errors.length;
-                observations.record(id, result, clean, { pwm: config.pwm });
+                observations.record(id, result, clean, { pwm: config.pwm, commOff: commOff() });
                 if (result !== 'visible' && config.selection.indexOf(id) >= 0) saveConfig({ selection: config.selection.filter((x) => x !== id) });
                 if (result === 'visible' && !clean) say('Saved, but the release was not confirmed: the light stays out of shows.');
                 lastTested = null; changed();
@@ -126,6 +128,11 @@ mgu.run({
                 return { ok: true };
             },
             experimental(on) { saveConfig({ allowExperimental: !!on }); return { ok: true }; },
+            commOff(on) {
+                if (runner.status().busy) throw new Error('Stop the running show first');
+                ctx.settings.set('flmCommOff', !!on); changed();
+                return { ok: true };
+            },
         };
 
         /* ---------- phone ---------- */
@@ -134,7 +141,7 @@ mgu.run({
                 const list = lamps(), plan = currentPlan(list), r = runner.status();
                 return {
                     version: ctx.spec && ctx.spec.version, guard: { ok: !guard.reason(), reason: guard.reason() || 'Parked' },
-                    runner: r, profile, allowExperimental: config.allowExperimental,
+                    runner: r, profile, allowExperimental: config.allowExperimental, commOff: commOff(),
                     lamps: list.map((l) => ({ id: l.id, label: l.label, short: l.short, route: l.route, group: l.group, side: l.side,
                         hex: l.hex, points: l.points, available: l.available, why: l.why, status: l.status, statusText: l.statusText,
                         experimental: !!l.experimental || l.support === 'experimental', module: l.module })),
@@ -151,6 +158,7 @@ mgu.run({
             stop() { return actions.stop(); },
             scan() { return actions.scan(); },
             experimental(b) { return actions.experimental(b.on === true); },
+            commoff(b) { return actions.commOff(b.on === true); },
         }, log);
         try { server.start(); } catch (e) { log.warn('Light Show phone server: ' + e.message); }
 
@@ -177,6 +185,7 @@ mgu.run({
             nextUnits: run(() => { unitsPage = profile && (unitsPage + 1) * 12 < profile.units.length ? unitsPage + 1 : 0; }),
             scan: run(() => actions.scan()),
             toggleExperimental: run(() => actions.experimental(!config.allowExperimental)),
+            toggleCommOff: run(() => actions.commOff(!commOff())),
             acknowledge: run(() => runner.acknowledgeNormalLights()),
         };
         const open = (i) => { page = i; notice = null; changed(); };
@@ -195,7 +204,7 @@ mgu.run({
             return {
                 page, yaw, allowed: !why, lockText: why, lock: why && /stationary|P \(Park\)/.test(why) ? 'moving' : 'signal',
                 runner: r, config, effects: Effects.EFFECTS, plan: currentPlan(list), profile, notice,
-                allowExperimental: config.allowExperimental, supportText: Scan.supportText,
+                allowExperimental: config.allowExperimental, supportText: Scan.supportText, commOff: commOff(),
                 recoveryUnreadable: journal.pending() && !journal.control(),
                 lightList: shown, lightsPage, unitsPage, selectedLamp, lastTested, showAll, groupFilter,
                 carLamps: list.filter((l) => l.available && (sel.has(l.id) || act.has(l.id)))

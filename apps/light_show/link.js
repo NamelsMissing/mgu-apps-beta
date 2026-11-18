@@ -40,7 +40,7 @@ class Link {
         } else if (address !== P.ADDRESS) {
             const validAddress = [0x43, 0x44].indexOf(address) >= 0;
             const readOnly = sid === 0x22 && ['F1 50', 'D9 FC'].indexOf(P.hex(data)) >= 0;
-            const routine = sid === 0x31 && F.isPermittedRoutine(data);
+            const routine = (sid === 0x31 && F.isPermittedRoutine(data)) || (sid === 0x28 && F.isPermittedCommunication(data));
             if (!validAddress || (!readOnly && !this.verifiedFlm[address]) || (!readOnly && !session && !routine))
                 throw new Error('Unsupported FLM diagnostic request / module not identified');
         }
@@ -135,6 +135,10 @@ class Link {
     }
     /** Vehicle order (FA) from the gateway: 22 3F 06, read-only. */
     async readVehicleOrder() { return this.request(0x22, [0x3F, 0x06], false, 0x10); }
+    /** Test option: headlamp module ignores normal bus messages (on = false) or listens again (on = true). */
+    async flmCommunication(side, on) {
+        return this.request(0x28, (on ? F.COMM_ON : F.COMM_OFF).slice(), on, F.moduleFor(side).address);
+    }
     async flmKeepalive(side) { return this.request(0x3E, [0x00], false, F.moduleFor(side).address); }
     async flmSession(side) { return this.request(0x10, [0x03], false, F.moduleFor(side).address); }
     async flmStart(side, channel, pwm = F.DEFAULT_PWM, seconds = F.DEFAULT_SECONDS) {

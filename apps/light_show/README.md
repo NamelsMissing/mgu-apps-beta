@@ -1,4 +1,4 @@
-# Light Show 0.4.3 (beta)
+# Light Show 0.4.4 (beta)
 
 Exterior light shows for BMW G-series cars with the iDrive 7 head unit (MGU), in the spirit of
 Bimmerlight: pick lights, pick an effect, start, from the BMW screen or from your phone.
@@ -66,9 +66,24 @@ with `RLM_KANAL` segment groups at 100 mA, and BDC lights with `LICHT_AUSGANG_DI
 (E3B5, the single outputs here). On LED cars the low and high beam LEDs sit in the headlamp
 modules, so the BDC low-beam output stays dark there - that is what the G21 test showed.
 
+## Test option: silence the headlamp modules
+
+Settings (app settings, or the switch on *Vehicle* / the phone's *Car* tab): **"Test: headlamp
+modules ignore bus messages during shows"**, off by default. As BimmerLight does it, each
+headlamp module used by a show gets, after its extended session:
+
+- `28 02 01` CommunicationControl disableRxAndEnableTx, normal messages - the module stops
+  following the car's own light requests (DRL, low beam), so only the show's channels light up;
+- at the end, before the default session: `28 00 03` enableRxAndTx, normal + network management.
+
+The recovery file records the silenced modules; STOP and the next app start send `28 00 03`
+again. Returning to the default session (or its timeout) restores normal communication as
+well (ISO 14229), so a refused `28 00 03` only blocks when the default session was not
+confirmed either. Only the headlamp modules 0x43 / 0x44 accept these two telegrams; the
+option cannot be changed while a show runs. Test results remember whether it was on.
+
 Not used on purpose: single RLM2 LED channels (only the groups), laser function test, special
-flashing modes, communication control (`28`, BimmerLight silences the headlamp modules with it)
-and check-control messages in the instrument cluster.
+flashing modes and check-control messages in the instrument cluster.
 
 Whether the laser element of laser headlights sits on any FLM channel is unknown (the PRGs list a
 separate laser function test). If a channel turns on something unexpected, like a very bright

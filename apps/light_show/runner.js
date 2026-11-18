@@ -22,6 +22,7 @@ class Runner {
         this.state = 'IDLE'; this.note = 'Ready'; this.run = null; this.cancel = false;
         this.active = new Set(); this.sent = 0; this.progress = null; this.cleanup = null;
         this.lastError = null; this.stopReason = null; this.title = '';
+        this.commOff = o.commOff || (() => false);   // test option from the settings
     }
     status() {
         return { state: this.state, note: this.note, active: Array.from(this.active), sent: this.sent,
@@ -121,6 +122,7 @@ class Runner {
 
     async _execute(plan, byId, lamps) {
         const touched = Runner.touched(lamps);
+        touched.commOff = this.commOff() ? touched.flmSides.slice() : [];
         touched.bdcSession = touched.fns.length > 0 || touched.outputs.length > 0;
         let dirty = false, fault = null;
         try {
@@ -140,6 +142,7 @@ class Runner {
             this.journal.mark(this.link.index, touched); dirty = true;
             if (touched.bdcSession) await this.link.session();
             for (const side of touched.flmSides) await this.link.flmSession(side);
+            for (const side of touched.commOff) await this.link.flmCommunication(side, false);
             for (const address of Runner.rlmAddresses(touched)) await this.link.rlmSession(address);
             const last = {};
             const touch = (k) => { last[k] = this.now(); };
@@ -243,10 +246,19 @@ class Runner {
             try { await this.link.rlmDefaultSession(address); done.rlm[address] = true; }
             catch (e) { done.rlm[address] = false; errors.push('rear light 0x' + address.toString(16) + ' default session: ' + (e.message || e)); }
         }
+        done.comm = {};
+        const commErrors = {};
+        for (const side of control.commOff || []) {
+            try { await this.link.flmCommunication(side, true); done.comm[side] = true; }
+            catch (e) { done.comm[side] = false; commErrors[side] = side + ' headlamp communication on: ' + (e.message || e); }
+        }
         for (const side of control.flmSides) {
             try { await this.link.flmDefaultSession(side); done.flmDefault[side] = true; }
             catch (e) { done.flmDefault[side] = false; errors.push(side + ' headlamp default session: ' + (e.message || e)); }
         }
+        // A refused "communication on" only counts when the default session was not confirmed
+        // either: returning to the default session restores normal communication (ISO 14229).
+        Object.keys(commErrors).forEach((side) => { if (!done.flmDefault[side]) errors.push(commErrors[side]); });
         // Leaving the extended session ends every IOControl the BDC still holds (ISO 14229).
         if (control.bdcSession) {
             try { await this.link.defaultSession(); done.bdcDefault = true; }

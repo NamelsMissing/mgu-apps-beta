@@ -64,6 +64,17 @@ function start(channel, pwm = DEFAULT_PWM, seconds = DEFAULT_SECONDS) {
     return [0x01, 0xA5, 0x4B, channelNumber(channel), s.pwm, s.seconds];
 }
 function stop() { return [0x02, 0xA5, 0x4B]; }
+// Test option (as BimmerLight does it): the headlamp module stops listening to normal bus
+// messages while a show runs, so the car's own light requests cannot interfere.
+// OFF = CommunicationControl disableRxAndEnableTx, normal messages (28 02 01);
+// ON  = enableRxAndTx, normal + network management (28 00 03). Leaving the extended session
+// (or its timeout) also restores normal communication (ISO 14229).
+const COMM_OFF = Object.freeze([0x02, 0x01]);
+const COMM_ON = Object.freeze([0x00, 0x03]);
+function isPermittedCommunication(data) {
+    return Array.isArray(data) && data.length === 2 &&
+        ((data[0] === COMM_OFF[0] && data[1] === COMM_OFF[1]) || (data[0] === COMM_ON[0] && data[1] === COMM_ON[1]));
+}
 function isPermittedRoutine(data) {
     if (!Array.isArray(data)) return false;
     if (data.length === 3) return data.every((x, i) => x === stop()[i]);
@@ -72,4 +83,4 @@ function isPermittedRoutine(data) {
     catch (_) { return false; }
 }
 module.exports = { MODULES, VARIANTS, variant, usable, PWM_OPTIONS, SECOND_OPTIONS, DEFAULT_PWM, DEFAULT_SECONDS,
-    moduleFor, channelNumber, settings, start, stop, isPermittedRoutine };
+    moduleFor, channelNumber, settings, start, stop, isPermittedRoutine, COMM_OFF, COMM_ON, isPermittedCommunication };

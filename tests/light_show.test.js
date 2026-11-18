@@ -151,7 +151,8 @@ const base = { stepMs: 500, gapMs: 100, cycles: 2, pwm: 60 };
     const j = new Journal(dir);
     assert.throws(() => j.mark('0F1234', { flmSides: ['left'] }), /body controller/);
     j.mark('0F2680', { flmSides: ['left'], outputs: [24], rlm: [{ address: 0x17, kind: 'fn', items: [2] }] });
-    assert.deepStrictEqual(new Journal(dir).control(), { flmSides: ['left'], fns: [], outputs: [24], bdcSession: true, rlm: [{ address: 0x17, kind: 'fn', items: [2] }] });
+    assert.deepStrictEqual(new Journal(dir).control(), { flmSides: ['left'], fns: [], outputs: [24], bdcSession: true, rlm: [{ address: 0x17, kind: 'fn', items: [2] }], commOff: [] });
+    assert.throws(() => Journal.clean({ flmSides: ['left'], commOff: ['right'] }), /communication/);
     fs.writeFileSync(path.join(dir, 'light-show-recovery.json'), '{broken');
     assert.strictEqual(new Journal(dir).control(), null, 'unreadable marker needs the manual light check');
     console.log('ok: 0.3.x names, observations and recovery markers are taken over safely');
@@ -171,6 +172,7 @@ class FakeLink {
     flmKeepalive(s) { return this.rec(s + ':3E'); }
     flmStart(s, c, pwm, sec) { F.start(c, pwm, sec); return this.rec(s + ':start' + c); }
     flmStop(s) { return this.rec(s + ':stop'); }
+    flmCommunication(s, on) { return this.rec(s + (on ? ':28 00 03' : ':28 02 01')); }
     timed(k, ms) { return this.rec('fn:' + k + ':' + ms); }
     identifyRlm(a) { return this.rec('id:rlm' + a.toString(16)).then(() => ({ name: 'RLM2_1L', kinds: ['fn', 'grp'] })); }
     rlmSession(a) { return this.rec('rlm' + a.toString(16) + ':03'); }
@@ -179,11 +181,11 @@ class FakeLink {
     rlmSet(a, kind, item, ms) { return this.rec('rlm' + a.toString(16) + ':' + kind + item + ':' + (ms ? 'on' : 'off')); }
     set(id, on) { return this.rec('out:' + id + ':' + on); }
 }
-function runnerWith(link, guardReason) {
+function runnerWith(link, guardReason, commOff) {
     const dir = tmp(), journal = new Journal(dir);
     let reason = guardReason || null;
     const guard = { reason: () => (typeof reason === 'function' ? reason() : reason) };
-    const r = new Runner({ link, guard, journal, log: { warn() {}, info() {} }, sleep: () => Promise.resolve() });
+    const r = new Runner({ link, guard, journal, log: { warn() {}, info() {} }, sleep: () => Promise.resolve(), commOff: () => !!commOff });
     return { r, journal, setReason: (x) => { reason = x; } };
 }
 const byId = {}; g21Lamps.forEach((l) => { byId[l.id] = l; });
@@ -255,6 +257,35 @@ const byId = {}; g21Lamps.forEach((l) => { byId[l.id] = l; });
         assert.ok(res2.ok, JSON.stringify(res2));
         assert.ok(link2.log.indexOf('rlm17:grp0:off') > 0 && link2.log.filter((x) => x === 'rlm17:01').length === 1);
         console.log('ok: RLM2 segment groups play one per module and are stopped once per module');
+    }
+    {
+        const link = new FakeLink(), { r, journal } = runnerWith(link, null, true);
+        await r.test(byId['flm:left:3'], {});
+        const l = link.log;
+        assert.ok(l.indexOf('left:03') < l.indexOf('left:28 02 01') && l.indexOf('left:28 02 01') < l.indexOf('left:start3'), 'silenced after session, before the channel');
+        assert.deepStrictEqual(l.slice(-3), ['left:stop', 'left:28 00 03', 'left:01'], 'communication back on before the default session');
+        assert.ok(!journal.pending());
+        const quiet = new FakeLink(), w = runnerWith(quiet, null, false);
+        await w.r.test(byId['flm:left:3'], {});
+        assert.ok(quiet.log.every((x) => x.indexOf(':28') < 0), 'option off: no communication control');
+        const refused = new FakeLink({ failOn: 'left:28 00 03' }), w2 = runnerWith(refused, null, true);
+        await w2.r.test(byId['flm:left:3'], {});
+        assert.ok(!w2.journal.pending(), 'refused "on" is fine when the default session was confirmed');
+        const both = new FakeLink({ failOn: 'left:01' }), w3 = runnerWith(both, null, true);
+        await w3.r.test(byId['flm:left:3'], {});
+        assert.ok(w3.journal.pending() && w3.journal.control().commOff[0] === 'left', 'marker keeps the silenced side');
+        both.o.failOn = null; await w3.r.stop();
+        assert.ok(both.log.slice(-2)[0] === 'left:28 00 03' && !w3.journal.pending(), 'STOP turns communication back on');
+        const Link = require(APP + '/link');
+        const ln = new Link({}, { warn() {}, info() {} });
+        ln.available = true; ln.verifiedFlm[0x43] = '0F26C0';
+        const sent = [];
+        ln.diag.physical = (a, sid, d) => { sent.push(sid.toString(16) + ' ' + d.join(' ')); return Promise.resolve([sid + 0x40, d[0]]); };
+        await ln.flmCommunication('left', false); await ln.flmCommunication('left', true);
+        assert.deepStrictEqual(sent, ['28 2 1', '28 0 3']);
+        await assert.rejects(ln.request(0x28, [0x03, 0x03], false, 0x43), /Unsupported FLM/);
+        await assert.rejects(ln.request(0x28, [0x02, 0x01], false, 0x17), /not allowed/);
+        console.log('ok: test option silences only the used headlamp modules and always turns them back on');
     }
 
     /* ---------- car3d ---------- */

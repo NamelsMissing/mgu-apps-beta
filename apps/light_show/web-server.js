@@ -109,7 +109,7 @@ class WebServer {
         if (req.method === 'GET' && q.pathname === '/') return reply(res, 200, page, 'text/html; charset=utf-8');
         if (req.method === 'GET' && q.pathname === '/api/state') return this.answer(res, () => this.actions.state());
         const routes = { '/api/show': 'show', '/api/save': 'save', '/api/test': 'test', '/api/observe': 'observe',
-            '/api/name': 'name', '/api/stop': 'stop', '/api/scan': 'scan', '/api/experimental': 'experimental' };
+            '/api/name': 'name', '/api/stop': 'stop', '/api/scan': 'scan', '/api/experimental': 'experimental', '/api/commoff': 'commoff' };
         const action = routes[q.pathname];
         if (req.method !== 'POST' || !action || typeof this.actions[action] !== 'function') return reply(res, 404, 'Not found');
         let body = '', size = 0, over = false;

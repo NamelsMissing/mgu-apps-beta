@@ -5,7 +5,7 @@ head unit (MGU) that are not ready for the main store source yet. Unofficial, no
 
 | App | Status | What it's for |
 | --- | --- | --- |
-| [**Light Show**](apps/light_show/README.md) | Beta 0.4.3 | Exterior light shows: vehicle scan, headlamp LEDs and body-controller lights, effect library, 3D car, phone remote via QR code. Replaces Light Show 0.3.4 from mgu-apps (same app, data kept). Only while parked in P. |
+| [**Light Show**](apps/light_show/README.md) | Beta 0.4.4 | Exterior light shows: vehicle scan, headlamp LEDs and body-controller lights, effect library, 3D car, phone remote via QR code. Replaces Light Show 0.3.4 from mgu-apps (same app, data kept). Only while parked in P. |
 | [**Heating Comfort**](apps/g21_wheelheat/README.md) | Beta 0.5.1 | Automatic seat and steering-wheel heating with control-unit detection: BDC or separate seat modules, profile saved for the next start. Same app id as in mgu-apps, so installing from here replaces the main version. |
 | [**GameSnacks**](apps/mgu_gamesnacks/README.md) | Beta | Four small games (2048, Snake, Blocks, Mines) played by touch or iDrive controller, plus a web mirror that shows gamesnacks.com from a browser on a Raspberry Pi or laptop in the car. Only while parked. |
 

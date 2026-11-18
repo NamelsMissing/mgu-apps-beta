@@ -104,6 +104,7 @@ function makeUi(G, colors) {
     /* ---------------- Show ---------------- */
     function drawShow(cv, t, m, a) {
         const r = m.runner, carBox = { x: EDGE, y: TOP, w: 640, h: FOOT_Y - TOP - 14 };
+        if (m.commOff) chip(cv, carBox.x + 22, carBox.y + carBox.h - 56, 'Test: headlamps silenced', t.warn, 12);
         car(cv, t, carBox, m, m.carLamps, { top: 46 });
         label(cv, r.busy ? r.title : 'Light Show', carBox.x + 22, carBox.y + 36, 22, t.text, carBox.w - 200, { font: 'bold' });
         chip(cv, carBox.x + carBox.w - 150, carBox.y + 16, r.busy ? (r.state === 'RUNNING' ? 'Playing' : 'Working') : m.allowed ? 'Ready' : 'Locked',
@@ -238,8 +239,10 @@ function makeUi(G, colors) {
             label(cv, (u.name || u.index || 'no identity') + (u.role ? '  ' + u.role : ''), x + 56, y, 15, t.text, cw - 60);
         });
         if (!units.length) paragraph(cv, 'The list appears after the scan.', rx + 24, TOP + 74, 17, t.dim, rw - 48, 2);
-        paragraph(cv, 'SUPPORTED = tested in a car (G21). FROM BMW DATA = telegram taken from the BMW PRG, not yet tested in a car: test each light once while you watch.',
-            rx + 24, TOP + 300, 14, t.dim, rw - 48, 3);
+        button(cv, t, rx + 20, TOP + 264, rw - 40, 46, (m.commOff ? 'On' : 'Off') + ': test - headlamps ignore car messages', a.toggleCommOff, 'COMM',
+            { on: m.commOff, size: 15, color: m.commOff ? t.warn : null, off: m.runner.busy });
+        paragraph(cv, 'Test option (like BimmerLight, 28 02 01): during a show the headlamp modules ignore the car\'s own light requests; normal communication returns at the end. SUPPORTED = tested in a car, FROM BMW DATA = from the BMW PRG.',
+            rx + 24, TOP + 330, 13.5, t.dim, rw - 48, 3);
         const pages = Math.max(1, Math.ceil(units.length / per));
         footer(cv, t, m.notice || (m.recoveryUnreadable ? 'Recovery file unreadable: check every normal light with the car\'s own switches, then confirm.' : 'Only identities are read. The result decides which lights the app offers.'),
             m.recoveryUnreadable ? t.crit : null, [

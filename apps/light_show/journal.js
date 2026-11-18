@@ -24,9 +24,11 @@ function clean(control) {
         items.forEach((i) => (r.kind === 'grp' ? R.groupCode(i) : R.telegram(r.kind, i, 0, 60)));
         return { address: r.address, kind: r.kind, items };
     });
+    const commOff = Array.from(new Set(c.commOff || []));
+    commOff.forEach((side) => { if (flmSides.indexOf(side) < 0) throw new Error('Invalid recovery communication entry'); });
     const bdcSession = !!c.bdcSession || fns.length > 0 || outputs.length > 0;
     if (!flmSides.length && !bdcSession && !rlm.length) throw new Error('Nothing to recover');
-    return { flmSides, fns, outputs, bdcSession, rlm };
+    return { flmSides, fns, outputs, bdcSession, rlm, commOff };
 }
 
 /** Light Show 0.3.x markers -> the 0.4 form. */
