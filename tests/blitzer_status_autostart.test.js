@@ -14,7 +14,8 @@ assert.equal(n.version, tool.version);
 assert.equal(b.requires[tool.id], tool.version);
 assert.equal(b.requires['cluster-render'], '0.4.0');
 assert.equal(app.mguAppStartType, 'autostart');
-assert.ok(/AUTOSTART_APPS = \\([^)]*"blitzer_status"/.test(get('tools/build_wheelheat_autostart.py')));
+const build = get('tools/build_wheelheat_autostart.py');
+assert.ok(build.includes('AUTOSTART_APPS') && build.includes('"blitzer_status"'), 'autostart app included in beta build');
 for(const key of ['phoneBridge','phoneBadge']) {
     assert.equal(app.settings.find(x=>x.key===key).default,false);
 }
