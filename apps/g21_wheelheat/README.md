@@ -69,4 +69,4 @@ The app package includes the MGU **autostart** setting. This allows the process 
 
 **Safety:** Test and configure the app while parked. Do not assume a heating request was successful without checking the actual vehicle behavior.
 
-For Store setup and update details, see [Store Installation](../../STORE_INSTALLATION.md).
+For MGU Store setup and update details for the current main release, see [Store Installation in mgu-apps](https://github.com/NamelsMissing/mgu-apps/blob/main/STORE_INSTALLATION.md). **This beta package is 0.5.1; the main catalog currently offers 0.5.4.**
