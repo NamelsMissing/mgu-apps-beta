@@ -5,13 +5,17 @@ Blitzer Status receives the open and close events that iPhone Shortcuts sends fo
 ## Setup
 
 1. If Custom Cluster is installed, update it to **0.6.11** or newer and restart the MGU before enabling the new link. Both versions of the bridge use TCP port 18977.
-2. Install **Blitzer Status** from the `NamelsMissing/mgu-apps` source in MGU Store. The Store installs the phone port tool and checks for the cluster renderer.
+2. Install **Blitzer Status** from the `NamelsMissing/mgu-apps-beta` source in MGU Store. The Store installs the phone port tool and checks for the cluster renderer.
 3. In Blitzer Status settings, enable **iPhone Shortcuts bridge**. Enable the **status line** there if you want the indicator in the cluster map window. Both settings start off.
 4. Connect the iPhone to CarPlay. When the app shows the phone port is open, copy the **Opened** link from the app or scan its QR code. In iPhone Shortcuts, create an **App** automation for **Blitzer.de → Is Opened → Run Immediately**. Add **Get Contents of URL** with that link and method **GET**.
 5. Use **Show closed link** in Blitzer Status and repeat for **Is Closed**. If you already have both automations, replace their URLs. Blitzer Status saves its own token, so URLs from Custom Cluster need to be updated once.
 6. Open Blitzer.de and then leave it. The last report and event count in Blitzer Status should update for both actions.
 
 iOS sends the close event when Blitzer.de leaves the foreground, including when it keeps running in the background. The app shows the last event received and carries no warning data. The thin green (opened) or red (closed) line appears along the bottom of an already visible cluster map window, for example with Waze. The line disappears six hours after the last event. The indicator uses the same map position during a parked Custom Cluster test. It does not request the map slot or change BMW turn guidance.
+
+**Important:** This app displays the last iPhone Shortcuts *foreground* open/close event. An `Is Closed` event is also sent when Blitzer.de continues running in the background. The indicator does **not** verify that Blitzer.de's background warnings are active. Use the app's event counter and logs to check communication.
+
+Keep the main `NamelsMissing/mgu-apps` source installed as well if you use Custom Cluster and its renderer. The network helper `mgu-cluster-net` now ships with **this beta source**.
 
 ## Diagnostics and build
 
